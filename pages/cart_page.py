@@ -8,6 +8,28 @@ class CartPage(BasePage):
         super().__init__(page)
         self.cart_url = "https://cart.payments.ebay.com/"
 
+    def clear_cart(self):
+        self.logger.info("Checking if cart needs to be cleared from previous runs...")
+        self.navigate(self.cart_url)
+        self.page.wait_for_load_state("load")
+        self.page.wait_for_timeout(3000)
+        
+        # Locate all remove buttons or links
+        remove_buttons = self.page.locator("button:has-text('Remove'), button[aria-label*='Remove'], a:has-text('Remove'), [data-testid='cart-remove-item']").all()
+        
+        if len(remove_buttons) > 0:
+            self.logger.info(f"Found {len(remove_buttons)} items in cart. Clearing them to prevent stale cart state...")
+            for btn in remove_buttons:
+                try:
+                    if btn.is_visible():
+                        btn.click()
+                        self.page.wait_for_timeout(2000)
+                except Exception as e:
+                    self.logger.warning(f"Could not click remove button: {e}")
+            self.logger.info("Cart cleared successfully.")
+        else:
+            self.logger.info("Cart is already empty. Starting fresh run.")
+
     def get_subtotal(self) -> float:
         self.logger.info("Opening shopping cart to retrieve subtotal...")
         self.navigate(self.cart_url)

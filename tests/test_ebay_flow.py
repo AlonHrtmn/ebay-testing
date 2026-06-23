@@ -30,6 +30,9 @@ def test_ebay_shopping_flow(page: Page):
     # Step 1: Identification (הזדהות)
     login_page.login_stub(username, password)
     
+    # Clear cart to ensure fresh run starts with 0 items
+    cart_page.clear_cart()
+    
     # Step 2: Search and gather matching URLs (with price constraint and pagination)
     urls = search_page.assertSearchItemsFound(search_query, max_price, item_limit)
     

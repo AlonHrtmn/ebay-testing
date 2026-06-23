@@ -44,6 +44,13 @@ def assertCartTotalNotExceeds(page, budget_per_item: float, items_count: int):
     cart_page = CartPage(page)
     cart_page.assertCartTotalNotExceeds(budget_per_item, items_count)
 
+def clear_cart(page):
+    """
+    Clears the shopping cart to avoid stale cart state.
+    """
+    cart_page = CartPage(page)
+    cart_page.clear_cart()
+
 # --- Standalone Script Execution ---
 
 def main():
@@ -78,6 +85,10 @@ def main():
             # Step 1: Identification (הזדהות)
             print("\n--- Step 1: Executing login (Identification) ---")
             login(page, username, password)
+            
+            # Clear cart from previous runs
+            print("\n--- Clearing shopping cart before adding new items ---")
+            clear_cart(page)
             
             # Step 2: Search
             print("\n--- Step 2: Executing searchItemsByNameUnderPrice ---")
