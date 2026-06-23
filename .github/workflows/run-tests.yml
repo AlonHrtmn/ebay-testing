@@ -1,0 +1,77 @@
+name: Playwright E2E Tests (eBay)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**'
+      - '.github/workflows/run-tests.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - '**'
+  workflow_dispatch:
+    inputs:
+      search_query:
+        description: 'eBay Search Query'
+        required: true
+        default: 'shoes'
+      max_price:
+        description: 'Maximum Budget Price per Item'
+        required: true
+        default: '220.0'
+      item_limit:
+        description: 'Number of Items to Add to Cart'
+        required: true
+        default: '5'
+      username:
+        description: 'eBay Username (Optional Stub)'
+        required: false
+        default: ''
+      password:
+        description: 'eBay Password (Optional Stub)'
+        required: false
+        default: ''
+
+jobs:
+  run-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+        cache-dependency-path: requirements.txt
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Install Playwright Browsers
+      run: |
+        python -m playwright install chromium
+
+    - name: Populate Test Data
+      if: github.event_name == 'workflow_dispatch'
+      run: |
+        echo '{"search_query": "${{ github.event.inputs.search_query }}", "max_price": ${{ github.event.inputs.max_price }}, "item_limit": ${{ github.event.inputs.item_limit }}, "username": "${{ github.event.inputs.username }}", "password": "${{ github.event.inputs.password }}"}' > config/test_data.json
+
+    - name: Run E2E Tests
+      run: |
+        pytest --html=reports/report.html --self-contained-html
+
+    - name: Upload Test Report & Screenshots
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: playwright-test-results
+        path: |
+          reports/
+          screenshots/
+        retention-days: 7
