@@ -109,7 +109,7 @@ class ProductPage(BasePage):
                     except Exception as e:
                         self.logger.warning(f"Failed to select native option {chosen_val}: {e}")
 
-    def add_to_cart(self, screenshot_name=None):
+    def add_to_cart(self, screenshot_name=None, depth=0):
         self.logger.info("Adding item to cart...")
         
         # Check and select variants first
@@ -159,6 +159,55 @@ class ProductPage(BasePage):
             
             # Allow a small extra delay for the image inside the popup/drawer to render fully
             self.page.wait_for_timeout(2500)
+            
+            # Check if the main item has a loaded image in the popup (fallback error-recovery)
+            main_img_valid = False
+            popup_container = self.page.locator("div[class*='overlay'], div[class*='lightbox'], div[class*='dialog'], div[class*='drawer'], div[class*='flyout'], div[class*='popup'], #lightbox-close-container")
+            
+            if depth < 2 and popup_container.count() > 0 and popup_container.first.is_visible():
+                img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
+                self.logger.info(f"Found {len(img_links)} image links inside the cart popup.")
+                
+                if len(img_links) > 0:
+                    main_img_loc = img_links[0].locator("xpath=.//img")
+                    if main_img_loc.count() > 0:
+                        src = main_img_loc.first.get_attribute("src") or ""
+                        natural_width = main_img_loc.first.evaluate("img => img.naturalWidth") or 0
+                        # If image has loaded width and is not a 1x1 spacer / placeholder gif
+                        if natural_width > 1 and "s.gif" not in src and "clear.gif" not in src:
+                            main_img_valid = True
+                            self.logger.info(f"Main item image is valid (width={natural_width}).")
+                
+                # If no main image is displayed, activate fallback: Explore related items!
+                if not main_img_valid:
+                    self.logger.warning("No valid product image displayed in the popup. Activating fallback: Explore related items!")
+                    
+                    related_link = None
+                    if len(img_links) > 1:
+                        # Select the first related item inside the popup recommendation list
+                        related_link = img_links[1]
+                    else:
+                        # Fallback to any product recommendation link on the page
+                        recs = self.page.locator("a[href*='/itm/']:has(img)").all()
+                        for r in recs:
+                            href = r.get_attribute("href") or ""
+                            if "/itm/" in href:
+                                related_link = r
+                                break
+                                
+                    if related_link:
+                        related_url = related_link.get_attribute("href") or ""
+                        self.logger.info(f"Navigating to related item: {related_url}")
+                        
+                        # Close the popup first
+                        close_btn = self.page.locator(self.cart_popup_close)
+                        if close_btn.count() > 0 and close_btn.first.is_visible():
+                            close_btn.first.click()
+                            self.page.wait_for_timeout(1000)
+                            
+                        self.navigate(related_url)
+                        # Try to add the related item recursively
+                        return self.add_to_cart(screenshot_name=screenshot_name, depth=depth+1)
             
             # Take the screenshot while the overlay/flyout is open
             if screenshot_name:
