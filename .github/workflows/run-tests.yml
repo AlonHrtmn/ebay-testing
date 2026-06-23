@@ -64,7 +64,7 @@ jobs:
 
     - name: Run E2E Tests
       run: |
-        pytest --html=reports/report.html --self-contained-html
+        python -m pytest --html=reports/report.html --self-contained-html
 
     - name: Upload Test Report & Screenshots
       if: always()
