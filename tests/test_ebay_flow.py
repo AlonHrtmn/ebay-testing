@@ -37,7 +37,7 @@ def test_ebay_shopping_flow(page: Page):
     urls = search_page.assertSearchItemsFound(search_query, max_price, item_limit)
     
     # Step 3: Add all retrieved items to the cart (handling variants randomly if present)
-    items_added = product_page.assertItemsAddedToCart(urls)
+    items_added = product_page.assertItemsAddedToCart(urls, max_price=max_price)
     
     # Step 4: Open cart page, retrieve subtotal, and verify budget limit
     cart_page.assertCartTotalNotExceeds(max_price, items_added)

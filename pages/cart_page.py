@@ -14,18 +14,29 @@ class CartPage(BasePage):
         self.page.wait_for_load_state("load")
         self.page.wait_for_timeout(3000)
         
-        # Locate all remove buttons or links
-        remove_buttons = self.page.locator("button:has-text('Remove'), button[aria-label*='Remove'], a:has-text('Remove'), [data-testid='cart-remove-item']").all()
+        max_attempts = 15
+        attempt = 0
+        cleared_any = False
         
-        if len(remove_buttons) > 0:
-            self.logger.info(f"Found {len(remove_buttons)} items in cart. Clearing them to prevent stale cart state...")
-            for btn in remove_buttons:
+        while attempt < max_attempts:
+            # Re-locate the remove buttons on every iteration to avoid stale elements
+            remove_button = self.page.locator("button:has-text('Remove'), button[aria-label*='Remove'], a:has-text('Remove'), [data-testid='cart-remove-item']").first
+            if remove_button.count() > 0 and remove_button.is_visible():
+                if not cleared_any:
+                    self.logger.info("Stale items found in cart. Clearing them...")
+                    cleared_any = True
                 try:
-                    if btn.is_visible():
-                        btn.click()
-                        self.page.wait_for_timeout(2000)
+                    remove_button.click()
+                    # Wait for the item to be removed and the page/cart to update
+                    self.page.wait_for_timeout(2500)
                 except Exception as e:
                     self.logger.warning(f"Could not click remove button: {e}")
+                    self.page.wait_for_timeout(1000)
+            else:
+                break
+            attempt += 1
+            
+        if cleared_any:
             self.logger.info("Cart cleared successfully.")
         else:
             self.logger.info("Cart is already empty. Starting fresh run.")

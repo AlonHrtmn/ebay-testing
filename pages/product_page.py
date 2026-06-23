@@ -17,6 +17,7 @@ class ProductPage(BasePage):
         """
         # 1. Custom listbox dropdowns (modern eBay)
         buttons = self.page.locator("button[aria-haspopup='listbox']").all()
+        
         variant_buttons = []
         for btn in buttons:
             if not btn.is_visible():
@@ -66,9 +67,16 @@ class ProductPage(BasePage):
                             chosen_opt.click()
                             self.page.wait_for_timeout(2000) # Wait for page updates / price recalculations
                         else:
-                            self.logger.warning(f"Dropdown {index+1}: No valid options found.")
+                            self.logger.warning(f"Dropdown {index+1}: No valid options found. Closing dropdown.")
+                            self.page.keyboard.press("Escape")
+                            self.page.wait_for_timeout(500)
+                    else:
+                        btn.click() # Click again to toggle close if no controls
+                        self.page.wait_for_timeout(500)
                 except Exception as e:
                     self.logger.error(f"Failed to handle custom dropdown {index+1}: {e}")
+                    self.page.keyboard.press("Escape")
+                    self.page.wait_for_timeout(500)
                     
         # 2. Fallback to native select dropdowns if they exist
         selects = self.page.locator("select").all()
@@ -109,31 +117,96 @@ class ProductPage(BasePage):
                     except Exception as e:
                         self.logger.warning(f"Failed to select native option {chosen_val}: {e}")
 
-    def add_to_cart(self, screenshot_name=None, depth=0):
+    def get_product_price(self) -> float:
+        """
+        Retrieves the price of the current item from the product page.
+        """
+        js_code = """
+        () => {
+            let selectors = [
+                '.x-price-primary',
+                '[data-testid="x-price-primary"]',
+                '.vi-price',
+                '#prcIsum',
+                '#mm-saleDscPrc',
+                '[itemprop="price"]'
+            ];
+            for (let selector of selectors) {
+                let elem = document.querySelector(selector);
+                if (elem) {
+                    let text = (elem.innerText || elem.textContent || '').trim();
+                    if (text) return text;
+                }
+            }
+            // Fallback: search right summary panel or body for price
+            let priceSection = document.querySelector('#RightSummaryPanel') || document.body;
+            let text = priceSection.innerText || '';
+            let matches = text.match(/(?:ILS|\\$|₪|£)\\s*\\d+(?:[.,]\\d+)?/gi);
+            if (matches && matches.length > 0) {
+                return matches[0];
+            }
+            return "";
+        }
+        """
+        try:
+            price_text = self.page.evaluate(js_code)
+            if price_text:
+                from utils.helpers import parse_price
+                val = parse_price(price_text)
+                self.logger.info(f"Product price parsed from page: {val} (raw: '{price_text}')")
+                return val
+        except Exception as e:
+            self.logger.warning(f"Could not parse product price: {e}")
+        return 0.0
+
+    def add_to_cart(self, max_price: float = None, screenshot_name=None, depth=0):
         self.logger.info("Adding item to cart...")
+        
+        # Load max_price if not passed
+        if max_price is None:
+            import os
+            import json
+            config_path = os.path.join(os.path.dirname(__file__), "..", "config", "test_data.json")
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    max_price = data.get("max_price", 220.0)
+            except Exception:
+                max_price = 220.0
+                
+        # Validate current product price against max price constraint
+        current_price = self.get_product_price()
+        if current_price > 0.0 and current_price > max_price:
+            self.logger.warning(f"Item price {current_price} exceeds limit of {max_price}!")
+            if depth > 0:
+                raise Exception(f"Fallback item price {current_price} exceeds budget constraint of {max_price}")
         
         # Check and select variants first
         self.select_random_variants()
         
-        # Look for the Add to Cart button using the Playwright-native role-based selector
-        # We try roles first (button/link), then fall back to standard CSS selectors if needed
+        # Look for the Add to Cart button, polling up to 5 seconds to allow page stability after variant selections
         atc_button = None
-        
-        for role in ["button", "link"]:
-            loc = self.page.get_by_role(role, name="Add to cart", exact=True)
-            if loc.count() > 0 and loc.first.is_visible():
-                atc_button = loc.first
-                self.logger.info(f"Found Add to Cart button using Playwright role: '{role}'")
+        for attempt in range(6):
+            for role in ["button", "link"]:
+                loc = self.page.get_by_role(role, name="Add to cart", exact=True)
+                if loc.count() > 0 and loc.first.is_visible():
+                    atc_button = loc.first
+                    self.logger.info(f"Found Add to Cart button using Playwright role: '{role}' (attempt {attempt+1})")
+                    break
+            if atc_button:
                 break
                 
-        # CSS selector fallbacks if role fails
-        if not atc_button:
-            for selector in ["#isCartBtn_btn", "#atcRedesignId_btn", "[data-testid='x-atc-action'] a"]:
+            # CSS selector fallbacks if role fails
+            for selector in ["#isCartBtn_btn", "#atcRedesignId_btn", "[data-testid='x-atc-action'] a", "a:has-text('Add to cart')"]:
                 loc = self.page.locator(selector)
                 if loc.count() > 0 and loc.first.is_visible():
                     atc_button = loc.first
-                    self.logger.info(f"Found Add to Cart button using fallback selector: {selector}")
+                    self.logger.info(f"Found Add to Cart button using fallback selector: {selector} (attempt {attempt+1})")
                     break
+            if atc_button:
+                break
+                
+            self.page.wait_for_timeout(1000)
                 
         if atc_button:
             atc_button.click()
@@ -157,32 +230,42 @@ class ProductPage(BasePage):
                 except Exception:
                     pass
             
-            # Allow a small extra delay for the image inside the popup/drawer to render fully
-            self.page.wait_for_timeout(2500)
-            
-            # Check if the main item has a loaded image in the popup (fallback error-recovery)
+            # Poll up to 10 times (5 seconds max) to verify and wait for the product image in the popup to render
             main_img_valid = False
             popup_container = self.page.locator("div[class*='overlay'], div[class*='lightbox'], div[class*='dialog'], div[class*='drawer'], div[class*='flyout'], div[class*='popup'], #lightbox-close-container")
             
             if depth < 2 and popup_container.count() > 0 and popup_container.first.is_visible():
-                img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
-                self.logger.info(f"Found {len(img_links)} image links inside the cart popup.")
-                
-                if len(img_links) > 0:
-                    main_img_loc = img_links[0].locator("xpath=.//img")
-                    if main_img_loc.count() > 0:
-                        src = main_img_loc.first.get_attribute("src") or ""
-                        natural_width = main_img_loc.first.evaluate("img => img.naturalWidth") or 0
-                        # If image has loaded width and is not a 1x1 spacer / placeholder gif
+                self.logger.info("Cart popup container detected. Waiting for image to render...")
+                for attempt in range(10):
+                    # Find all links with images inside the popup
+                    img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
+                    
+                    if len(img_links) == 0:
+                        img_locators = popup_container.first.locator("img").all()
+                    else:
+                        first_link_img = img_links[0].locator("xpath=.//img")
+                        if first_link_img.count() > 0:
+                            img_locators = [first_link_img.first]
+                        else:
+                            img_locators = popup_container.first.locator("img").all()
+                            
+                    if len(img_locators) > 0:
+                        main_img_loc = img_locators[0]
+                        src = main_img_loc.get_attribute("src") or ""
+                        natural_width = main_img_loc.evaluate("img => img.naturalWidth") or 0
+                        # Check if image has loaded and is not a tiny 1x1 spacer/placeholder
                         if natural_width > 1 and "s.gif" not in src and "clear.gif" not in src:
                             main_img_valid = True
-                            self.logger.info(f"Main item image is valid (width={natural_width}).")
+                            self.logger.info(f"Main item image successfully rendered (width={natural_width}) on attempt {attempt+1}.")
+                            break
+                    self.page.wait_for_timeout(500)
                 
                 # If no main image is displayed, activate fallback: Explore related items!
                 if not main_img_valid:
                     self.logger.warning("No valid product image displayed in the popup. Activating fallback: Explore related items!")
                     
                     related_link = None
+                    img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
                     if len(img_links) > 1:
                         # Select the first related item inside the popup recommendation list
                         related_link = img_links[1]
@@ -206,15 +289,15 @@ class ProductPage(BasePage):
                             self.page.wait_for_timeout(1000)
                             
                         self.navigate(related_url)
+                        self.page.wait_for_timeout(2000) # Allow navigation to stabilize
                         # Try to add the related item recursively
-                        return self.add_to_cart(screenshot_name=screenshot_name, depth=depth+1)
+                        return self.add_to_cart(max_price=max_price, screenshot_name=screenshot_name, depth=depth+1)
             
             # Take the screenshot while the overlay/flyout is open
             if screenshot_name:
                 self.take_screenshot(screenshot_name)
             
             # Handle potential overlay popup/modals that might block subsequent actions
-            # e.g., "Add protection plan" or "Go to cart" popups
             close_btn = self.page.locator(self.cart_popup_close)
             if close_btn.count() > 0 and close_btn.first.is_visible():
                 close_btn.first.click()
@@ -224,7 +307,7 @@ class ProductPage(BasePage):
             self.logger.error("Add to Cart button was not found or is not visible.")
             raise Exception("Add to Cart button not found on product page")
  
-    def addItemsToCart(self, urls: list) -> int:
+    def addItemsToCart(self, urls: list, max_price: float = None) -> int:
         self.logger.info(f"Starting addItemsToCart for {len(urls)} items.")
         added_count = 0
         
@@ -233,7 +316,7 @@ class ProductPage(BasePage):
             try:
                 self.navigate(url)
                 screenshot_name = f"item_{idx+1}_added.png"
-                self.add_to_cart(screenshot_name=screenshot_name)
+                self.add_to_cart(max_price=max_price, screenshot_name=screenshot_name)
                 added_count += 1
             except Exception as e:
                 self.logger.error(f"Failed to add item {url} to cart: {e}")
@@ -242,11 +325,11 @@ class ProductPage(BasePage):
                 
         return added_count
 
-    def assertItemsAddedToCart(self, urls: list) -> int:
+    def assertItemsAddedToCart(self, urls: list, max_price: float = None) -> int:
         """
         Navigates to each item, adds to cart, and asserts that at least one item was added successfully.
         """
         self.logger.info("Executing addItemsToCart and asserting at least one item was added successfully...")
-        items_added = self.addItemsToCart(urls)
+        items_added = self.addItemsToCart(urls, max_price=max_price)
         assert items_added > 0, "Cart failed: No items were successfully added to the cart."
         return items_added

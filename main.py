@@ -29,13 +29,13 @@ def searchItemsByNameUnderPrice(page, query: str, max_price: float, limit: int =
     search_page = SearchPage(page)
     return search_page.searchItemsByNameUnderPrice(query, max_price, limit)
 
-def addItemsToCart(page, urls: list):
+def addItemsToCart(page, urls: list, max_price: float = None):
     """
     Navigates to each item URL, handles option selects, and clicks Add to Cart.
     Saves screenshot of each.
     """
     product_page = ProductPage(page)
-    return product_page.addItemsToCart(urls)
+    return product_page.addItemsToCart(urls, max_price=max_price)
 
 def assertCartTotalNotExceeds(page, budget_per_item: float, items_count: int):
     """
@@ -104,7 +104,7 @@ def main():
                 
             # Step 3: Add to Cart
             print("\n--- Step 3: Executing addItemsToCart ---")
-            items_added = addItemsToCart(page, urls)
+            items_added = addItemsToCart(page, urls, max_price)
             print(f"Successfully added {items_added} items to the cart.")
             
             # Step 4: Verify Cart Subtotal
