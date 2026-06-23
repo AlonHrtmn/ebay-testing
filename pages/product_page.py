@@ -8,7 +8,7 @@ class ProductPage(BasePage):
         # Selectors for variant dropdowns (eBay usually uses select elements with classes or IDs starting with 'msku-sel')
         self.variant_selects = "select[id^='msku-sel-'], select.msku-sel"
         self.add_to_cart_btn = "#isCartBtn_btn, #atcRedesignId_btn, [data-testid='x-atc-action'] a, a:has-text('Add to cart')"
-        self.cart_popup_close = "#lightbox-close, .vi-overlay-close, button.shoptile-close-btn"
+        self.cart_popup_close = "#lightbox-close, .vi-overlay-close, button.shoptile-close-btn, button[aria-label='Close overlay'], button[aria-label='Close dialog']"
 
     def select_random_variants(self):
         """
@@ -109,7 +109,7 @@ class ProductPage(BasePage):
                     except Exception as e:
                         self.logger.warning(f"Failed to select native option {chosen_val}: {e}")
 
-    def add_to_cart(self):
+    def add_to_cart(self, screenshot_name=None):
         self.logger.info("Adding item to cart...")
         
         # Check and select variants first
@@ -140,17 +140,41 @@ class ProductPage(BasePage):
             self.page.wait_for_load_state("load")
             self.logger.info("Clicked Add to Cart button.")
             
+            # Wait for overlay popup to initiate and show
+            self.page.wait_for_timeout(1500)
+            
+            # Wait for any active spinner loaders on the page to hide
+            spinner_selectors = [
+                ".ux-loading-overlay", ".loading-spinner", ".spinner", ".shoptile-loader", 
+                "div[class*='loading']", "div[class*='spinner']", "svg[class*='spinner']"
+            ]
+            for spinner in spinner_selectors:
+                try:
+                    loc = self.page.locator(spinner)
+                    if loc.count() > 0 and loc.first.is_visible():
+                        self.logger.info(f"Waiting for loading spinner to hide: {spinner}")
+                        loc.first.wait_for(state="hidden", timeout=5000)
+                except Exception:
+                    pass
+            
+            # Allow a small extra delay for the image inside the popup/drawer to render fully
+            self.page.wait_for_timeout(2500)
+            
+            # Take the screenshot while the overlay/flyout is open
+            if screenshot_name:
+                self.take_screenshot(screenshot_name)
+            
             # Handle potential overlay popup/modals that might block subsequent actions
             # e.g., "Add protection plan" or "Go to cart" popups
-            self.page.wait_for_timeout(2000) # Wait for overlay to appear
             close_btn = self.page.locator(self.cart_popup_close)
             if close_btn.count() > 0 and close_btn.first.is_visible():
                 close_btn.first.click()
+                self.page.wait_for_timeout(1000) # Wait for fade-out animation
                 self.logger.info("Closed cart overlay/popup.")
         else:
             self.logger.error("Add to Cart button was not found or is not visible.")
             raise Exception("Add to Cart button not found on product page")
-
+ 
     def addItemsToCart(self, urls: list) -> int:
         self.logger.info(f"Starting addItemsToCart for {len(urls)} items.")
         added_count = 0
@@ -159,11 +183,8 @@ class ProductPage(BasePage):
             self.logger.info(f"Processing item {idx+1}/{len(urls)}: {url}")
             try:
                 self.navigate(url)
-                self.add_to_cart()
-                
-                # Take a screenshot as requested by requirements
                 screenshot_name = f"item_{idx+1}_added.png"
-                self.take_screenshot(screenshot_name)
+                self.add_to_cart(screenshot_name=screenshot_name)
                 added_count += 1
             except Exception as e:
                 self.logger.error(f"Failed to add item {url} to cart: {e}")
