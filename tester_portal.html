@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>eBay E2E Test Runner Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(17, 24, 39, 0.7);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --primary: #2563eb;
+            --primary-glow: rgba(37, 99, 235, 0.4);
+            --success: #10b981;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --accent: #8b5cf6;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(37, 99, 235, 0.15) 0%, transparent 40%),
+                radial-gradient(circle at 90% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 40%);
+            padding: 2rem 1rem;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 650px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            backdrop-filter: blur(16px);
+            padding: 2.5rem;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+            animation: fadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+
+        .logo {
+            font-size: 2.2rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        .form-group {
+            margin-bottom: 1.25rem;
+        }
+
+        label {
+            display: block;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        input, select {
+            width: 100%;
+            background: rgba(31, 41, 55, 0.5);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 0.8rem 1rem;
+            font-family: inherit;
+            font-size: 0.95rem;
+            color: var(--text-main);
+            transition: all 0.3s ease;
+        }
+
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 12px var(--primary-glow);
+            background: rgba(31, 41, 55, 0.8);
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+
+        .btn-trigger {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            border: none;
+            color: white;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(37, 99, 235, 0.3);
+            margin-top: 1.5rem;
+        }
+
+        .btn-trigger:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(37, 99, 235, 0.5);
+        }
+
+        .btn-trigger:active {
+            transform: translateY(0);
+        }
+
+        .btn-trigger:disabled {
+            background: rgba(55, 65, 81, 0.5);
+            color: var(--text-muted);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+
+        .info-box {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid rgba(245, 158, 11, 0.2);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: #fbbf24;
+        }
+
+        .info-box a {
+            color: #fbbf24;
+            font-weight: 600;
+            text-decoration: underline;
+        }
+
+        .status-section {
+            margin-top: 1.5rem;
+            border-radius: 12px;
+            padding: 1rem;
+            display: none;
+            font-size: 0.9rem;
+            animation: fadeIn 0.4s ease;
+        }
+
+        .status-success {
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            display: block;
+        }
+
+        .status-error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.2);
+            color: #f87171;
+            display: block;
+        }
+
+        .status-loading {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.2);
+            color: #60a5fa;
+            display: block;
+        }
+
+        .run-link {
+            display: inline-block;
+            margin-top: 0.5rem;
+            color: white;
+            background: rgba(255, 255, 255, 0.15);
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 500;
+            font-size: 0.8rem;
+            transition: background 0.3s;
+        }
+
+        .run-link:hover {
+            background: rgba(255, 255, 255, 0.25);
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <div class="logo">eBay E2E Tester Portal</div>
+        <p class="subtitle">Enter parameters to update config and trigger online Playwright test run</p>
+    </div>
+
+    <div class="info-box">
+        ⚠️ <strong>Note:</strong> Triggering a run requires a GitHub Personal Access Token (PAT) with <strong>workflow</strong> scope. Create one under <a href="https://github.com/settings/tokens" target="_blank">GitHub Settings</a>. Your token is stored securely in your browser's local storage.
+    </div>
+
+    <form id="testForm">
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="owner">GitHub Owner</label>
+                <input type="text" id="owner" value="AlonHrtmn" required>
+            </div>
+            <div class="form-group">
+                <label for="repo">GitHub Repository</label>
+                <input type="text" id="repo" value="pockemon_game_asignment" required>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label for="pat">GitHub Personal Access Token (PAT)</label>
+            <input type="password" id="pat" placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxx" required>
+        </div>
+
+        <div class="form-group">
+            <label for="query">eBay Search Query</label>
+            <input type="text" id="query" value="shoes" required>
+        </div>
+
+        <div class="grid-2">
+            <div class="form-group">
+                <label for="maxPrice">Maximum Price (ILS / $)</label>
+                <input type="number" id="maxPrice" value="220" step="any" required>
+            </div>
+            <div class="form-group">
+                <label for="limit">Item Limit (Max 5)</label>
+                <input type="number" id="limit" value="5" min="1" max="10" required>
+            </div>
+        </div>
+
+        <button type="submit" class="btn-trigger" id="btnSubmit">Trigger Online Test Run 🚀</button>
+    </form>
+
+    <div id="statusBox" class="status-section"></div>
+</div>
+
+<script>
+    // Load saved PAT from localstorage
+    const savedPat = localStorage.getItem('github_pat');
+    if (savedPat) {
+        document.getElementById('pat').value = savedPat;
+    }
+
+    const savedOwner = localStorage.getItem('github_owner');
+    if (savedOwner) {
+        document.getElementById('owner').value = savedOwner;
+    }
+
+    const savedRepo = localStorage.getItem('github_repo');
+    if (savedRepo) {
+        document.getElementById('repo').value = savedRepo;
+    }
+
+    document.getElementById('testForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const owner = document.getElementById('owner').value.trim();
+        const repo = document.getElementById('repo').value.trim();
+        const pat = document.getElementById('pat').value.trim();
+        const query = document.getElementById('query').value.trim();
+        const maxPrice = document.getElementById('maxPrice').value.trim();
+        const limit = document.getElementById('limit').value.trim();
+
+        // Save settings to local storage
+        localStorage.setItem('github_pat', pat);
+        localStorage.setItem('github_owner', owner);
+        localStorage.setItem('github_repo', repo);
+
+        const statusBox = document.getElementById('statusBox');
+        const btnSubmit = document.getElementById('btnSubmit');
+
+        statusBox.className = "status-section status-loading";
+        statusBox.innerHTML = "🔄 Sending trigger request to GitHub Actions API...";
+        btnSubmit.disabled = true;
+
+        try {
+            // Trigger the workflow_dispatch event
+            const url = `https://api.github.com/repos/${owner}/${repo}/actions/workflows/run-tests.yml/dispatches`;
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `token ${pat}`,
+                    'Accept': 'application/vnd.github.v3+json',
+                    'X-GitHub-Api-Version': '2022-11-28',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ref: 'main',
+                    inputs: {
+                        search_query: query,
+                        max_price: maxPrice,
+                        item_limit: limit,
+                        username: "",
+                        password: ""
+                    }
+                })
+            });
+
+            if (response.status === 204) {
+                statusBox.className = "status-section status-success";
+                statusBox.innerHTML = `
+                    <strong>✔ E2E Test triggered successfully!</strong><br>
+                    GitHub Actions is spinning up a server to run Playwright.<br>
+                    <a href="https://github.com/${owner}/${repo}/actions/workflows/run-tests.yml" target="_blank" class="run-link">View Execution Log on GitHub ↗</a>
+                `;
+            } else {
+                const errData = await response.json().catch(() => ({ message: "Unknown API error" }));
+                throw new Error(errData.message || `HTTP ${response.status}`);
+            }
+        } catch (error) {
+            statusBox.className = "status-section status-error";
+            statusBox.innerHTML = `
+                <strong>❌ Failed to trigger test run</strong><br>
+                Error: ${error.message}<br>
+                Please check your Personal Access Token (PAT) and repository details.
+            `;
+        } finally {
+            btnSubmit.disabled = false;
+        }
+    });
+</script>
+</body>
+</html>
