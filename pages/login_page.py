@@ -1,29 +1,37 @@
+from playwright.sync_api import Page
+
 from pages.base_page import BasePage
 
+
 class LoginPage(BasePage):
-    def __init__(self, page):
+    EBAY_HOME_URL = "https://www.ebay.com"
+    LOGIN_URL = "https://signin.ebay.com"
+
+    def __init__(self, page: Page):
         super().__init__(page)
-        self.login_url = "https://signin.ebay.com"
+
+    def open_login_page(self) -> None:
+        self.navigate(self.LOGIN_URL)
+        self.wait_for_page_ready()
+
+    def start_guest_session(self) -> bool:
+        self.logger.info("Starting eBay guest session.")
+        self.navigate(self.EBAY_HOME_URL)
+        self.wait_for_page_ready()
+        self.take_screenshot("session_initialization.png")
+        self.logger.info("Guest session established.")
+        return True
 
     def login_stub(self, username: str = "", password: str = "") -> bool:
         """
-        Executes the identification step (הזדהות).
-        If credentials are provided, it simulates navigating to the login page.
-        Otherwise, it initializes a clean guest session on the eBay homepage,
-        bypassing CAPTCHA prompts as allowed by assignment assumptions.
+        Assignment-safe identification step.
+
+        Real credential submission is intentionally skipped because eBay sign-in
+        can trigger CAPTCHA / MFA flows that make the automation non-deterministic.
         """
         if username and password:
-            self.logger.info(f"Attempting to navigate to login for user: {username}")
-            self.navigate(self.login_url)
-            self.page.wait_for_load_state("load")
-            self.page.wait_for_timeout(1500)
-            self.logger.info("Credentials detected. Bypassing credentials input to prevent CAPTCHA blockage.")
-        
-        self.logger.info("Initializing guest session on eBay homepage...")
-        self.navigate("https://www.ebay.com")
-        self.page.wait_for_load_state("load")
-        
-        # Capture screenshot of the session initialization
-        self.take_screenshot("session_initialization.png")
-        self.logger.info("Identification session established successfully (Guest mode).")
-        return True
+            self.logger.info("Credentials supplied for %s; opening sign-in page only.", username)
+            self.open_login_page()
+            self.pause(1500)
+
+        return self.start_guest_session()

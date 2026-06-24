@@ -1,134 +1,127 @@
-import re
 from playwright.sync_api import Page
+
 from pages.base_page import BasePage
 from utils.helpers import parse_price
 
+
 class CartPage(BasePage):
+    CART_URL = "https://cart.payments.ebay.com/"
+    MAX_REMOVE_ATTEMPTS = 15
+
+    REMOVE_ITEM_SELECTOR = (
+        "button:has-text('Remove'), "
+        "button[aria-label*='Remove'], "
+        "a:has-text('Remove'), "
+        "[data-testid='cart-remove-item']"
+    )
+
+    SUBTOTAL_SCRIPT = r"""
+    () => {
+        const currencyPricePattern = /(?:ILS|\$|\u20aa|\u00a3|GBP|EUR)\s*\d+(?:[.,]\d+)?/gi;
+        const elements = [...document.querySelectorAll('*')];
+
+        const priceFromContainer = (element) => {
+            const parentText = element.parentElement?.innerText || '';
+            const matches = parentText.match(currencyPricePattern);
+            return matches?.at(-1) || '';
+        };
+
+        const subtotalLabels = [
+            /^(?:items?|item\s*subtotal)\s*(?:\(\d+\))?$/i,
+            /^subtotal/i,
+        ];
+
+        for (const labelPattern of subtotalLabels) {
+            for (let i = elements.length - 1; i >= 0; i--) {
+                const text = (elements[i].innerText || '').trim();
+                if (text.length > 100 || !labelPattern.test(text)) continue;
+
+                const price = priceFromContainer(elements[i]);
+                if (price) return price;
+            }
+        }
+
+        const bodyText = document.body.innerText || '';
+        const subtotalMatches = bodyText.match(
+            /Subtotal\s*\(?\d*\s*items?\)?\s*(?:ILS|\$|\u20aa|\u00a3|GBP|EUR)\s*\d+(?:[.,]\d+)?/gi
+        );
+        if (subtotalMatches?.length) {
+            return subtotalMatches[0];
+        }
+
+        const summary = document.querySelector('[data-testid="cart-summary"]');
+        if (summary) {
+            const matches = (summary.innerText || '').match(currencyPricePattern);
+            return matches?.at(-1) || '';
+        }
+
+        return '';
+    }
+    """
+
     def __init__(self, page: Page):
         super().__init__(page)
-        self.cart_url = "https://cart.payments.ebay.com/"
 
-    def clear_cart(self):
-        self.logger.info("Checking if cart needs to be cleared from previous runs...")
-        self.navigate(self.cart_url)
-        self.page.wait_for_load_state("load")
-        self.page.wait_for_timeout(3000)
-        
-        max_attempts = 15
-        attempt = 0
-        cleared_any = False
-        
-        while attempt < max_attempts:
-            # Re-locate the remove buttons on every iteration to avoid stale elements
-            remove_button = self.page.locator("button:has-text('Remove'), button[aria-label*='Remove'], a:has-text('Remove'), [data-testid='cart-remove-item']").first
-            if remove_button.count() > 0 and remove_button.is_visible():
-                if not cleared_any:
-                    self.logger.info("Stale items found in cart. Clearing them...")
-                    cleared_any = True
-                try:
-                    remove_button.click()
-                    # Wait for the item to be removed and the page/cart to update
-                    self.page.wait_for_timeout(2500)
-                except Exception as e:
-                    self.logger.warning(f"Could not click remove button: {e}")
-                    self.page.wait_for_timeout(1000)
-            else:
+    def open(self) -> None:
+        self.navigate(self.CART_URL)
+        self.wait_for_page_ready()
+        self.pause(3000)
+
+    def clear_cart(self) -> None:
+        self.logger.info("Checking whether the cart contains stale items.")
+        self.open()
+
+        removed_count = 0
+        for _ in range(self.MAX_REMOVE_ATTEMPTS):
+            remove_button = self.locator(self.REMOVE_ITEM_SELECTOR).first
+            if remove_button.count() == 0 or not remove_button.is_visible():
                 break
-            attempt += 1
-            
-        if cleared_any:
-            self.logger.info("Cart cleared successfully.")
+
+            try:
+                remove_button.click()
+                removed_count += 1
+                self.pause(2500)
+            except Exception as exc:
+                self.logger.warning("Could not remove cart item: %s", exc)
+                self.pause(1000)
+
+        if removed_count:
+            self.logger.info("Removed %s stale cart item(s).", removed_count)
         else:
-            self.logger.info("Cart is already empty. Starting fresh run.")
+            self.logger.info("Cart is already empty.")
+
+    def get_subtotal_text(self) -> str:
+        subtotal_text = self.page.evaluate(self.SUBTOTAL_SCRIPT) or ""
+        self.logger.info("Extracted subtotal text: '%s'", subtotal_text)
+        return subtotal_text
 
     def get_subtotal(self) -> float:
-        self.logger.info("Opening shopping cart to retrieve subtotal...")
-        self.navigate(self.cart_url)
-        self.page.wait_for_load_state("load")
-        self.page.wait_for_timeout(3000) # Wait for cart details to fully render and calculate
-        
-        # JS-based parser to find "Items (X)" or "Subtotal" label and its corresponding price
-        js_code = """
-        () => {
-            // Find all elements in the DOM
-            let allElems = document.querySelectorAll('*');
-            
-            // Prioritize "Items (X)" or "Items" label to get item-only subtotal without shipping
-            for (let i = allElems.length - 1; i >= 0; i--) {
-                let elem = allElems[i];
-                let text = (elem.innerText || '').trim();
-                if (text && /^(?:Items?|Item\\s*subtotal)\\s*(?:\\(\\d+\\))?$/i.test(text) && text.length < 50) {
-                    let parent = elem.parentElement;
-                    if (parent) {
-                        let parentText = parent.innerText || '';
-                        let matches = parentText.match(/(?:ILS|\\$|₪|£)\\s*\\d+(?:[.,]\\d+)?/gi);
-                        if (matches && matches.length > 0) {
-                            return matches[matches.length - 1];
-                        }
-                    }
-                }
-            }
-            
-            // Fallback to "Subtotal" label
-            for (let i = allElems.length - 1; i >= 0; i--) {
-                let elem = allElems[i];
-                if (elem.innerText && elem.innerText.includes('Subtotal') && elem.innerText.length < 100) {
-                    let parent = elem.parentElement;
-                    if (parent) {
-                        let parentText = parent.innerText || '';
-                        let matches = parentText.match(/(?:ILS|\\$|₪|£)\\s*\\d+(?:[.,]\\d+)?/gi);
-                        if (matches && matches.length > 0) {
-                            // Take the last match since the price is typically placed after the label
-                            return matches[matches.length - 1];
-                        }
-                    }
-                }
-            }
-            
-            // Fallback 1: search page body text for patterns like "Subtotal (X items): ILS Y.YY"
-            let bodyText = document.body.innerText || '';
-            let matches = bodyText.match(/Subtotal\\s*\\(?\\d*\\s*items?\\)?\\s*(?:ILS|\\$|₪|£)\\s*\\d+(?:[.,]\\d+)?/gi);
-            if (matches && matches.length > 0) {
-                return matches[0];
-            }
-            
-            // Fallback 2: search within elements that look like order summaries
-            let summary = document.querySelector('[data-testid="cart-summary"]');
-            if (summary) {
-                let text = summary.innerText || '';
-                let matches = text.match(/(?:ILS|\\$|₪|£)\\s*\\d+(?:[.,]\\d+)?/gi);
-                if (matches && matches.length > 0) {
-                    return matches[matches.length - 1];
-                }
-            }
-            
-            return "";
-        }
-        """
-        
-        subtotal_text = self.page.evaluate(js_code)
-        self.logger.info(f"Extracted subtotal text using robust DOM parser: '{subtotal_text}'")
-        
-        if not subtotal_text:
-            self.logger.error("Could not find any subtotal elements on the cart page.")
-            subtotal_text = "0.0"
-            
-        return parse_price(subtotal_text)
+        self.logger.info("Opening shopping cart to retrieve subtotal.")
+        self.open()
+        subtotal = parse_price(self.get_subtotal_text())
 
-    def assertCartTotalNotExceeds(self, budget_per_item: float, items_count: int):
-        self.logger.info(f"Executing assertCartTotalNotExceeds: budget_per_item={budget_per_item}, items_count={items_count}")
-        
+        if subtotal <= 0.0:
+            self.logger.error("Could not retrieve a positive cart subtotal.")
+
+        return subtotal
+
+    def assert_cart_total_not_exceeds(self, budget_per_item: float, items_count: int) -> None:
+        self.logger.info(
+            "Validating cart subtotal against budget_per_item=%s, items_count=%s",
+            budget_per_item,
+            items_count,
+        )
         actual_total = self.get_subtotal()
         max_allowed = budget_per_item * items_count
-        
-        self.logger.info(f"Cart Subtotal: {actual_total}. Max Allowed Budget: {max_allowed} ({budget_per_item} * {items_count})")
-        
-        # Take a screenshot of the cart page
+
         self.take_screenshot("cart_page_validation.png")
-        
-        # Perform assertion
-        assert actual_total > 0.0, "Assertion Failed! Cart subtotal could not be retrieved (is 0.0)."
+
+        assert actual_total > 0.0, "Cart subtotal could not be retrieved."
         assert actual_total <= max_allowed, (
-            f"Assertion Failed! Cart total ({actual_total}) exceeds the allowed budget of ({max_allowed})."
+            f"Cart total ({actual_total}) exceeds the allowed budget ({max_allowed})."
         )
-        self.logger.info("Assertion Passed! Cart total is within the budget.")
+        self.logger.info("Cart total is within budget: %s <= %s", actual_total, max_allowed)
+
+    # Backward-compatible API expected by the current tests.
+    def assertCartTotalNotExceeds(self, budget_per_item: float, items_count: int) -> None:
+        self.assert_cart_total_not_exceeds(budget_per_item, items_count)
