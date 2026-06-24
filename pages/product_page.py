@@ -159,7 +159,7 @@ class ProductPage(BasePage):
             self.logger.warning(f"Could not parse product price: {e}")
         return 0.0
 
-    def add_to_cart(self, max_price: float = None, screenshot_name=None, depth=0):
+    def add_to_cart(self, max_price: float = None, screenshot_name=None):
         self.logger.info("Adding item to cart...")
         
         # Load max_price if not passed
@@ -178,8 +178,7 @@ class ProductPage(BasePage):
         current_price = self.get_product_price()
         if current_price > 0.0 and current_price > max_price:
             self.logger.warning(f"Item price {current_price} exceeds limit of {max_price}!")
-            if depth > 0:
-                raise Exception(f"Fallback item price {current_price} exceeds budget constraint of {max_price}")
+            raise Exception(f"Item price {current_price} exceeds budget constraint of {max_price}")
         
         # Check and select variants first
         self.select_random_variants()
@@ -213,8 +212,8 @@ class ProductPage(BasePage):
             self.page.wait_for_load_state("load")
             self.logger.info("Clicked Add to Cart button.")
             
-            # Wait for overlay popup to initiate and show
-            self.page.wait_for_timeout(1500)
+            # Wait for overlay confirmation popup to initiate and show
+            self.page.wait_for_timeout(3000)
             
             # Wait for any active spinner loaders on the page to hide
             spinner_selectors = [
@@ -230,69 +229,6 @@ class ProductPage(BasePage):
                 except Exception:
                     pass
             
-            # Poll up to 10 times (5 seconds max) to verify and wait for the product image in the popup to render
-            main_img_valid = False
-            popup_container = self.page.locator("div[class*='overlay'], div[class*='lightbox'], div[class*='dialog'], div[class*='drawer'], div[class*='flyout'], div[class*='popup'], #lightbox-close-container")
-            
-            if depth < 2 and popup_container.count() > 0 and popup_container.first.is_visible():
-                self.logger.info("Cart popup container detected. Waiting for image to render...")
-                for attempt in range(10):
-                    # Find all links with images inside the popup
-                    img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
-                    
-                    if len(img_links) == 0:
-                        img_locators = popup_container.first.locator("img").all()
-                    else:
-                        first_link_img = img_links[0].locator("xpath=.//img")
-                        if first_link_img.count() > 0:
-                            img_locators = [first_link_img.first]
-                        else:
-                            img_locators = popup_container.first.locator("img").all()
-                            
-                    if len(img_locators) > 0:
-                        main_img_loc = img_locators[0]
-                        src = main_img_loc.get_attribute("src") or ""
-                        natural_width = main_img_loc.evaluate("img => img.naturalWidth") or 0
-                        # Check if image has loaded and is not a tiny 1x1 spacer/placeholder
-                        if natural_width > 1 and "s.gif" not in src and "clear.gif" not in src:
-                            main_img_valid = True
-                            self.logger.info(f"Main item image successfully rendered (width={natural_width}) on attempt {attempt+1}.")
-                            break
-                    self.page.wait_for_timeout(500)
-                
-                # If no main image is displayed, activate fallback: Explore related items!
-                if not main_img_valid:
-                    self.logger.warning("No valid product image displayed in the popup. Activating fallback: Explore related items!")
-                    
-                    related_link = None
-                    img_links = popup_container.first.locator("xpath=.//a[descendant::img]").all()
-                    if len(img_links) > 1:
-                        # Select the first related item inside the popup recommendation list
-                        related_link = img_links[1]
-                    else:
-                        # Fallback to any product recommendation link on the page
-                        recs = self.page.locator("a[href*='/itm/']:has(img)").all()
-                        for r in recs:
-                            href = r.get_attribute("href") or ""
-                            if "/itm/" in href:
-                                related_link = r
-                                break
-                                
-                    if related_link:
-                        related_url = related_link.get_attribute("href") or ""
-                        self.logger.info(f"Navigating to related item: {related_url}")
-                        
-                        # Close the popup first
-                        close_btn = self.page.locator(self.cart_popup_close)
-                        if close_btn.count() > 0 and close_btn.first.is_visible():
-                            close_btn.first.click()
-                            self.page.wait_for_timeout(1000)
-                            
-                        self.navigate(related_url)
-                        self.page.wait_for_timeout(2000) # Allow navigation to stabilize
-                        # Try to add the related item recursively
-                        return self.add_to_cart(max_price=max_price, screenshot_name=screenshot_name, depth=depth+1)
-            
             # Take the screenshot while the overlay/flyout is open
             if screenshot_name:
                 self.take_screenshot(screenshot_name)
@@ -301,7 +237,7 @@ class ProductPage(BasePage):
             close_btn = self.page.locator(self.cart_popup_close)
             if close_btn.count() > 0 and close_btn.first.is_visible():
                 close_btn.first.click()
-                self.page.wait_for_timeout(1000) # Wait for fade-out animation
+                self.page.wait_for_timeout(1500) # Wait for fade-out animation
                 self.logger.info("Closed cart overlay/popup.")
         else:
             self.logger.error("Add to Cart button was not found or is not visible.")
