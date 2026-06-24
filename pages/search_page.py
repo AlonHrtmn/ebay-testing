@@ -187,14 +187,24 @@ class SearchPage(BasePage):
                 self.logger.info("No more pages available.")
                 break
                 
-        # Perform random selection from candidate pool
+                # Perform random selection from candidate pool
         if len(all_candidate_urls) > limit:
             import random
-            selected_urls = random.sample(all_candidate_urls, limit)
-            self.logger.info(f"Randomly selected {limit} items from a pool of {len(all_candidate_urls)} valid candidates.")
+            import time
+            
+            # Seed the random number generator using current time in milliseconds
+            ms_seed = int(time.time() * 1000)
+            random.seed(ms_seed)
+            
+            # Shuffle the candidate list first using the newly seeded randomizer
+            shuffled_candidates = all_candidate_urls.copy()
+            random.shuffle(shuffled_candidates)
+            
+            # Select the items
+            selected_urls = random.sample(shuffled_candidates, limit)
+            self.logger.info(f"Randomly selected {limit} items using millisecond seed {ms_seed}.")
         else:
             selected_urls = all_candidate_urls
-            self.logger.info(f"Pool size ({len(all_candidate_urls)}) is <= limit ({limit}). Selecting all candidates.")
             
         return selected_urls
 
