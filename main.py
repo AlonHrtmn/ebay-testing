@@ -29,13 +29,13 @@ def searchItemsByNameUnderPrice(page, query: str, max_price: float, limit: int =
     search_page = SearchPage(page)
     return search_page.searchItemsByNameUnderPrice(query, max_price, limit)
 
-def addItemsToCart(page, urls: list, max_price: float = None):
+def addItemsToCart(page, urls: list, max_price: float = None, desired_count: int = None) -> int:
     """
     Navigates to each item URL, handles option selects, and clicks Add to Cart.
     Saves screenshot of each.
     """
     product_page = ProductPage(page)
-    return product_page.addItemsToCart(urls, max_price=max_price)
+    return product_page.addItemsToCart(urls, max_price=max_price, desired_count=desired_count)
 
 def assertCartTotalNotExceeds(page, budget_per_item: float, items_count: int):
     """
@@ -65,16 +65,18 @@ def main():
     print(f"Starting eBay automation flow for '{query}' under budget {max_price}...")
     
     with sync_playwright() as p:
-        # We launch the browser in HEADED mode so you can watch it run live
+        # We launch the browser in HEADED mode to watch it run live
         print("Launching browser in headed mode...")
         browser = p.chromium.launch(
             headless=False, 
-            slow_mo=500  # Pause for 500ms between actions for comfortable viewing
+            slow_mo=500,  # Pause for 500ms between actions for viewing
+            args=["--start-maximized"],
         )
         
         # Apply anti-bot configurations
         context = browser.new_context(
-            viewport={"width": 1280, "height": 800},
+            viewport={"width": 1920, "height": 1080},
+            device_scale_factor=1,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             locale="en-US",
             timezone_id="America/New_York"
@@ -104,7 +106,7 @@ def main():
                 
             # Step 3: Add to Cart
             print("\n--- Step 3: Executing addItemsToCart ---")
-            items_added = addItemsToCart(page, urls, max_price)
+            items_added = addItemsToCart(page, urls, max_price, desired_count=limit)
             print(f"Successfully added {items_added} items to the cart.")
             
             # Step 4: Verify Cart Subtotal

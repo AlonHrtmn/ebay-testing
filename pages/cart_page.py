@@ -59,6 +59,46 @@ class CartPage(BasePage):
     }
     """
 
+    CART_IMAGES_READY_SCRIPT = r"""
+    (expectedCount) => {
+        const placeholderTerms = [
+            's.gif',
+            'spacer',
+            'placeholder',
+            'noimage',
+            'no-image',
+            'no_image',
+            'blank',
+            'transparent',
+            'loading',
+            'lazy-load',
+            'pixel.'
+        ];
+
+        const isRealImage = (img) => {
+            const source = (
+                img.currentSrc ||
+                img.src ||
+                img.dataset.src ||
+                img.dataset.original ||
+                img.dataset.lazySrc ||
+                ''
+            ).toLowerCase();
+            const rect = img.getBoundingClientRect();
+
+            return Boolean(source) &&
+                !placeholderTerms.some((term) => source.includes(term)) &&
+                rect.width >= 40 &&
+                rect.height >= 40 &&
+                (img.naturalWidth || img.width || 0) >= 40 &&
+                (img.naturalHeight || img.height || 0) >= 40;
+        };
+
+        const images = [...document.querySelectorAll('img')];
+        return images.filter(isRealImage).length >= expectedCount;
+    }
+    """
+
     def __init__(self, page: Page):
         super().__init__(page)
 
@@ -105,6 +145,28 @@ class CartPage(BasePage):
 
         return subtotal
 
+    def wait_for_cart_item_images(self, expected_count: int) -> None:
+        self.logger.info("Waiting for %s cart item image(s) to load.", expected_count)
+        images = self.page.locator("img").all()
+
+        for image in images:
+            try:
+                image.scroll_into_view_if_needed(timeout=2000)
+                self.pause(250)
+            except Exception:
+                continue
+
+        self.page.evaluate("window.scrollTo(0, 0)")
+
+        try:
+            self.page.wait_for_function(
+                self.CART_IMAGES_READY_SCRIPT,
+                arg=expected_count,
+                timeout=self.DEFAULT_TIMEOUT_MS,
+            )
+        except Exception as exc:
+            self.logger.warning("Cart images were not all ready before screenshot: %s", exc)
+
     def assert_cart_total_not_exceeds(self, budget_per_item: float, items_count: int) -> None:
         self.logger.info(
             "Validating cart subtotal against budget_per_item=%s, items_count=%s",
@@ -114,6 +176,7 @@ class CartPage(BasePage):
         actual_total = self.get_subtotal()
         max_allowed = budget_per_item * items_count
 
+        self.wait_for_cart_item_images(items_count)
         self.take_screenshot("cart_page_validation.png")
 
         assert actual_total > 0.0, "Cart subtotal could not be retrieved."

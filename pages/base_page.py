@@ -31,7 +31,7 @@ class BasePage:
     def take_screenshot(self, name: str) -> str:
         self.SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
         path = self.SCREENSHOTS_DIR / name
-        self.page.screenshot(path=str(path))
+        self.page.screenshot(path=str(path), full_page=True)
         self.logger.info("Screenshot saved to %s", path)
         return str(path)
 

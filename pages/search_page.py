@@ -1,6 +1,6 @@
 import random
 import re
-import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Iterable
 
@@ -29,6 +29,19 @@ class SearchPage(BasePage):
     ITEM_LINK_SELECTOR = "xpath=//a[contains(@href, '/itm/')]"
     PRICE_PATTERN = re.compile(r"(?:ILS|\$|\u20aa|\u00a3|GBP|EUR)\s*\d+(?:[.,]\d+)?", re.IGNORECASE)
     ITEM_ID_PATTERN = re.compile(r"/itm/(\d+)")
+    PLACEHOLDER_IMAGE_TERMS = (
+        "s.gif",
+        "spacer",
+        "placeholder",
+        "noimage",
+        "no-image",
+        "no_image",
+        "blank",
+        "transparent",
+        "loading",
+        "lazy-load",
+        "pixel.",
+    )
 
     NEXT_PAGE_SELECTOR = (
         "a.pagination__next, "
@@ -59,44 +72,99 @@ class SearchPage(BasePage):
         "jackets", "pants", "shorts", "cap", "caps", "hat", "hats",
         "beanie", "beanies", "clothing", "apparel", "costume", "costumes",
         "dress", "dresses", "skirt", "skirts", "jeans", "towel", "towels",
+        "lace", "laces", "shoelace", "shoelaces", "shoestring",
+        "shoestrings", "schnursenkel", "schnuersenkel", "senkel", "schuhband",
+        "schuhbaender",
+        "polish", "paints", "dyes", "conditioner", "conditioners", "cream",
+        "creams", "repair", "repairs", "glue", "adhesive", "adhesives",
+        "angelus",
     }
 
     QUERY_SHOE_KEYWORDS = {
         "shoe", "sneaker", "boot", "sandal", "slipper", "clog",
         "footwear", "loafer", "flat", "oxford", "mule", "slide",
     }
+    ACCESSORY_PATTERNS = tuple(
+        re.compile(pattern, re.IGNORECASE)
+        for pattern in (
+            r"\bshoe\s*laces?\b",
+            r"\bshoe\s*strings?\b",
+            r"\bshoelaces?\b",
+            r"\bshoestrings?\b",
+            r"\blaces?\s+for\s+(?:shoes|sneakers|boots)\b",
+            r"\b(?:round|flat)\s+laces?\b",
+            r"\breplacement\s+laces?\b",
+            r"\bschnursenkel\b",
+            r"\bschnuersenkel\b",
+            r"\bsenkel\b",
+            r"\bschuhbaender\b",
+            r"\bschuhband\b",
+            r"\bshoe\s+(?:care|repair|polish|paint|dye|glue)\b",
+            r"\bleather\s+(?:paint|dye|cream|conditioner|repair|care)\b",
+            r"\b(?:paint|dye|polish|cleaner|conditioner|cream|repair|glue|adhesive)s?\s+(?:for\s+)?(?:shoes|sneakers|boots|leather)\b",
+            r"\b(?:shoes|sneakers|boots|leather)\s+(?:paint|dye|polish|cleaner|conditioner|cream|repair|glue|adhesive)s?\b",
+            r"\bangelus\b",
+        )
+    )
+    SEARCH_READY_SELECTORS = (
+        "ul.srp-results li.s-item, "
+        "div.srp-river-results li.s-item, "
+        "a[href*='/itm/']"
+    )
 
     def __init__(self, page: Page):
         super().__init__(page)
 
     def open(self) -> None:
-        if "ebay.com" not in self.page.url:
+        if not re.search(r"https://(www|www\.sandbox)\.ebay\.com(?:/|$)", self.page.url):
             self.navigate(self.EBAY_HOME_URL)
 
     def execute_search(self, query: str) -> None:
         self.logger.info("Searching eBay for: %s", query)
         self.open()
         self.fill_input(self.SEARCH_INPUT, query)
-        search_button = self.page.get_by_role("button", name=self.SEARCH_BUTTON_NAME, exact=True)
-        search_button.wait_for(state="visible", timeout=self.SHORT_TIMEOUT_MS)
-        search_button.click()
+        if not self.submit_search_with_button():
+            self.logger.info("Search button was unavailable; submitting search with Enter.")
+            self.page.press(self.SEARCH_INPUT, "Enter")
         self.wait_for_page_ready()
+        self.wait_for_search_results_shell()
         self.apply_buy_it_now_filter()
+
+    def submit_search_with_button(self) -> bool:
+        search_button = self.page.get_by_role("button", name=self.SEARCH_BUTTON_NAME, exact=True)
+        try:
+            search_button.wait_for(state="visible", timeout=self.SHORT_TIMEOUT_MS)
+            search_button.click()
+            return True
+        except Exception as exc:
+            self.logger.warning("Could not submit search with button: %s", exc)
+            return False
+
+    def wait_for_search_results_shell(self) -> None:
+        try:
+            self.page.wait_for_selector(
+                self.SEARCH_READY_SELECTORS,
+                state="attached",
+                timeout=self.DEFAULT_TIMEOUT_MS,
+            )
+        except Exception as exc:
+            self.logger.warning("Search results shell was not detected after submit: %s", exc)
 
     def apply_buy_it_now_filter(self) -> bool:
         buy_it_now = self.page.locator("a:has-text('Buy It Now'), a[aria-label='Buy It Now']")
+        success = False
         try:
-            if buy_it_now.count() == 0 or not buy_it_now.first.is_visible():
-                return False
+            if buy_it_now.count() > 0 and buy_it_now.first.is_visible():
+               self.logger.info("Applying Buy It Now filter.")
+               buy_it_now.first.click()
+               self.wait_for_page_ready()
+               self.pause(2000)
+               success = True 
 
-            self.logger.info("Applying Buy It Now filter.")
-            buy_it_now.first.click()
-            self.wait_for_page_ready()
-            self.pause(2000)
-            return True
         except Exception as exc:
             self.logger.warning("Could not apply Buy It Now filter: %s", exc)
-            return False
+            
+        return success
 
     def apply_max_price_filter(self, max_price: float) -> bool:
         self.logger.info("Applying max price filter: %s", max_price)
@@ -131,18 +199,23 @@ class SearchPage(BasePage):
         self.execute_search(query)
         self.apply_max_price_filter(max_price)
 
-        candidates = self.collect_candidates(query=query, max_price=max_price, limit=limit)
+        fallback_pool_size = max(limit * 3, limit)
+        candidates = self.collect_candidates(
+            query=query,
+            max_price=max_price,
+            target_count=fallback_pool_size,
+        )
         selected = self.select_candidate_urls(candidates, limit)
         self.logger.info("Selected %s candidate item URL(s).", len(selected))
         return selected
 
-    def collect_candidates(self, query: str, max_price: float, limit: int) -> list[SearchCandidate]:
+    def collect_candidates(self, query: str, max_price: float, target_count: int) -> list[SearchCandidate]:
         is_shoe_query = self.is_shoe_query(query)
         candidates: list[SearchCandidate] = []
         seen_urls: set[str] = set()
         page_number = 1
 
-        while len(candidates) < limit or (page_number < 3 and len(candidates) < 15):
+        while len(candidates) < target_count:
             self.logger.info("Scanning search results page %s.", page_number)
 
             if not self.wait_for_results(page_number):
@@ -161,7 +234,7 @@ class SearchPage(BasePage):
                 len(candidates),
             )
 
-            if len(candidates) >= 15 or not self.go_to_next_results_page():
+            if len(candidates) >= target_count or not self.go_to_next_results_page():
                 break
 
             page_number += 1
@@ -264,14 +337,33 @@ class SearchPage(BasePage):
         if image.count() == 0:
             return False
 
-        src = image.first.get_attribute("src") or ""
-        return bool(src) and "s.gif" not in src
+        image_url = self.first_image_url(image.first)
+        return self.is_real_image_url(image_url)
 
-    def title_matches_shoe_intent(self, title: str) -> bool:
-        normalized = self.normalize_words(title)
-        has_shoe_keyword = self.contains_any_keyword(normalized, self.SHOE_KEYWORDS)
-        has_accessory_keyword = self.contains_any_keyword(normalized, self.ACCESSORY_KEYWORDS)
-        return has_shoe_keyword and not has_accessory_keyword
+    @classmethod
+    def first_image_url(cls, image: Locator) -> str:
+        for attribute in ("src", "data-src", "data-original", "data-lazy-src", "srcset"):
+            value = image.get_attribute(attribute) or ""
+            if value:
+                return value.split(",")[0].strip().split(" ")[0]
+        return ""
+
+    @classmethod
+    def is_real_image_url(cls, image_url: str) -> bool:
+        normalized_url = image_url.strip().lower()
+        if not normalized_url:
+            return False
+
+        return not any(term in normalized_url for term in cls.PLACEHOLDER_IMAGE_TERMS)
+
+    @classmethod
+    def title_matches_shoe_intent(cls, title: str) -> bool:
+        normalized = cls.normalize_words(title)
+        if cls.is_accessory_text(normalized):
+            return False
+
+        has_shoe_keyword = cls.contains_any_keyword(normalized, cls.SHOE_KEYWORDS)
+        return has_shoe_keyword
 
     def go_to_next_results_page(self) -> bool:
         next_button = self.page.locator(self.NEXT_PAGE_SELECTOR)
@@ -294,19 +386,28 @@ class SearchPage(BasePage):
 
     def select_candidate_urls(self, candidates: list[SearchCandidate], limit: int) -> list[str]:
         urls = [candidate.url for candidate in candidates]
-        if len(urls) <= limit:
-            return urls
+        if not urls:
+            return []
 
-        seed = int(time.time() * 1000)
-        rng = random.Random(seed)
+        rng = random.SystemRandom()
         rng.shuffle(urls)
-        selected = rng.sample(urls, limit)
-        self.logger.info("Randomly selected %s item(s) using seed %s.", limit, seed)
+        selected = urls[:limit]
+        self.logger.info("Randomly selected up to %s item(s).", limit)
         return selected
 
     @staticmethod
     def normalize_words(text: str) -> str:
-        return re.sub(r"[^a-z0-9]", " ", text.lower())
+        ascii_text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+        return re.sub(r"[^a-z0-9]", " ", ascii_text.lower())
+
+    @classmethod
+    def is_accessory_text(cls, text: str) -> bool:
+        normalized = cls.normalize_words(text)
+        if cls.contains_any_keyword(normalized, cls.ACCESSORY_KEYWORDS):
+            return True
+
+        compact = normalized.replace(" ", "")
+        return any(pattern.search(normalized) or pattern.search(compact) for pattern in cls.ACCESSORY_PATTERNS)
 
     @classmethod
     def is_shoe_query(cls, query: str) -> bool:

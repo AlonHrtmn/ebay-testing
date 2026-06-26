@@ -1,6 +1,7 @@
 import random
 from playwright.sync_api import Page
 from pages.base_page import BasePage
+from pages.search_page import SearchPage
 
 class ProductPage(BasePage):
     def __init__(self, page: Page):
@@ -9,6 +10,13 @@ class ProductPage(BasePage):
         self.variant_selects = "select[id^='msku-sel-'], select.msku-sel"
         self.add_to_cart_btn = "#isCartBtn_btn, #atcRedesignId_btn, [data-testid='x-atc-action'] a, a:has-text('Add to cart')"
         self.cart_popup_close = "#lightbox-close, .vi-overlay-close, button.shoptile-close-btn, button[aria-label='Close overlay'], button[aria-label='Close dialog']"
+        self.product_image_selectors = (
+            "#PicturePanel img, "
+            "[data-testid='ux-image-carousel-container'] img, "
+            ".ux-image-carousel-item img, "
+            ".ux-image-grid img, "
+            "img[src*='i.ebayimg.com']"
+        )
 
     def select_random_variants(self):
         """
@@ -159,6 +167,33 @@ class ProductPage(BasePage):
             self.logger.warning(f"Could not parse product price: {e}")
         return 0.0
 
+    def product_has_real_image(self) -> bool:
+        script = """
+        (selector) => {
+            const images = [...document.querySelectorAll(selector)];
+            const visibleImages = images.filter((img) => {
+                const rect = img.getBoundingClientRect();
+                return rect.width >= 80 && rect.height >= 80;
+            });
+
+            return visibleImages.some((img) => {
+                const src = img.currentSrc || img.src || img.dataset.src || img.dataset.original || '';
+                return Boolean(src) && (img.naturalWidth || img.width || 0) >= 80 && (img.naturalHeight || img.height || 0) >= 80;
+            });
+        }
+        """
+        try:
+            self.page.wait_for_selector(self.product_image_selectors, state="attached", timeout=5000)
+            for image in self.page.locator(self.product_image_selectors).all():
+                image_url = SearchPage.first_image_url(image)
+                if SearchPage.is_real_image_url(image_url):
+                    if self.page.evaluate(script, self.product_image_selectors):
+                        return True
+            return False
+        except Exception as exc:
+            self.logger.warning("Could not verify product image: %s", exc)
+            return False
+
     def add_to_cart(self, max_price: float = None, screenshot_name=None):
         self.logger.info("Adding item to cart...")
         
@@ -173,6 +208,9 @@ class ProductPage(BasePage):
                     max_price = data.get("max_price", 220.0)
             except Exception:
                 max_price = 220.0
+
+        if not self.product_has_real_image():
+            raise Exception("Skipping item because the product page has no real image.")
                 
         # Validate current product price against max price constraint
         current_price = self.get_product_price()
@@ -243,15 +281,19 @@ class ProductPage(BasePage):
             self.logger.error("Add to Cart button was not found or is not visible.")
             raise Exception("Add to Cart button not found on product page")
  
-    def addItemsToCart(self, urls: list, max_price: float = None) -> int:
+    def addItemsToCart(self, urls: list, max_price: float = None, desired_count: int = None) -> int:
         self.logger.info(f"Starting addItemsToCart for {len(urls)} items.")
         added_count = 0
+        target_count = desired_count or len(urls)
         
         for idx, url in enumerate(urls):
+            if added_count >= target_count:
+                break
+
             self.logger.info(f"Processing item {idx+1}/{len(urls)}: {url}")
             try:
                 self.navigate(url)
-                screenshot_name = f"item_{idx+1}_added.png"
+                screenshot_name = f"item_{added_count+1}_added.png"
                 self.add_to_cart(max_price=max_price, screenshot_name=screenshot_name)
                 added_count += 1
             except Exception as e:
@@ -261,11 +303,15 @@ class ProductPage(BasePage):
                 
         return added_count
 
-    def assertItemsAddedToCart(self, urls: list, max_price: float = None) -> int:
+    def assertItemsAddedToCart(self, urls: list, max_price: float = None, desired_count: int = None) -> int:
         """
         Navigates to each item, adds to cart, and asserts that at least one item was added successfully.
         """
         self.logger.info("Executing addItemsToCart and asserting at least one item was added successfully...")
-        items_added = self.addItemsToCart(urls, max_price=max_price)
+        items_added = self.addItemsToCart(urls, max_price=max_price, desired_count=desired_count)
         assert items_added > 0, "Cart failed: No items were successfully added to the cart."
+        if desired_count is not None:
+            assert items_added == desired_count, (
+                f"Cart added {items_added} image-backed item(s), expected {desired_count}."
+            )
         return items_added
