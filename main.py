@@ -90,9 +90,9 @@ def main():
             print("\n--- Step 1: Executing login (Identification) ---")
             login(page, username, password)
             
-            # Clear cart from previous runs
-            print("\n--- Clearing shopping cart before adding new items ---")
-            clear_cart(page)
+            if os.getenv("EBAY_CLEAR_CART_BEFORE_RUN") == "1":
+                print("\n--- Clearing shopping cart before adding new items ---")
+                clear_cart(page)
             
             # Step 2: Search
             print("\n--- Step 2: Executing searchItemsByNameUnderPrice ---")
