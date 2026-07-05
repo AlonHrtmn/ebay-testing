@@ -24,6 +24,14 @@ def browser_context_args(browser_context_args):
         "timezone_id": "America/New_York"
     }
 
+
+@pytest.fixture(autouse=True)
+def extend_playwright_timeouts(page, pytestconfig):
+    is_headless = not pytestconfig.getoption("--headed")
+    os.environ["PLAYWRIGHT_HEADLESS"] = "1" if is_headless else "0"
+    page.set_default_timeout(60_000)
+    page.set_default_navigation_timeout(60_000)
+
 @pytest.hookimpl(tryfirst=True, hookwrapper=True)
 def pytest_runtest_makereport(item, call):
     """

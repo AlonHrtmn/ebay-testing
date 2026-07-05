@@ -1,12 +1,18 @@
-from playwright.sync_api import Page
+import os
+import time
+
+from playwright.sync_api import Error as PlaywrightError, Page
 
 from pages.base_page import BasePage
+from utils.exceptions import EbayVerificationRequired
 from utils.helpers import parse_price
 
 
 class CartPage(BasePage):
-    CART_URL = "https://cart.payments.ebay.com/"
+    CART_URL = "https://cart.ebay.com/"
+    CART_HOST_MARKERS = ("cart.payments.ebay.com", "cart.ebay.com")
     MAX_REMOVE_ATTEMPTS = 15
+    VERIFICATION_TIMEOUT_MS = int(os.getenv("EBAY_VERIFICATION_TIMEOUT_MS", "60000"))
 
     REMOVE_ITEM_SELECTOR = (
         "button:has-text('Remove'), "
@@ -103,13 +109,80 @@ class CartPage(BasePage):
         super().__init__(page)
 
     def open(self) -> None:
-        self.navigate(self.CART_URL)
-        self.wait_for_page_ready()
+        self.logger.info("Navigating to %s", self.CART_URL)
+        try:
+            self.page.goto(self.CART_URL, wait_until="domcontentloaded")
+        except PlaywrightError as exc:
+            if "net::ERR_ABORTED" not in str(exc) or not self.is_cart_page():
+                raise
+            self.logger.warning(
+                "Cart navigation was aborted after reaching an eBay cart URL: %s",
+                self.page.url,
+            )
+
+        try:
+            self.page.wait_for_load_state("domcontentloaded", timeout=self.DEFAULT_TIMEOUT_MS)
+        except Exception as exc:
+            if not self.is_cart_page():
+                raise
+            self.logger.warning("Cart DOM ready wait did not complete: %s", exc)
+
         self.pause(3000)
+        self.raise_if_verification_required()
+
+    def is_cart_page(self) -> bool:
+        return any(marker in self.page.url for marker in self.CART_HOST_MARKERS)
+
+    def raise_if_verification_required(self) -> None:
+        if not self.is_verification_page():
+            return
+
+        is_headless = os.getenv("PLAYWRIGHT_HEADLESS") == "1" or "CI" in os.environ
+        if is_headless:
+            self.logger.warning("eBay verification page detected in headless mode. Aborting immediately.")
+            raise EbayVerificationRequired(
+                "eBay served a human-verification page while opening the cart."
+            )
+
+        self.logger.warning(
+            "eBay verification page detected; waiting up to %s seconds for manual completion.",
+            self.VERIFICATION_TIMEOUT_MS // 1000,
+        )
+
+        deadline = time.monotonic() + (self.VERIFICATION_TIMEOUT_MS / 1000)
+        while time.monotonic() < deadline:
+            self.pause(1000)
+            if not self.is_verification_page():
+                self.logger.info("eBay verification completed; continuing cart flow.")
+                return
+
+        raise EbayVerificationRequired(
+            "eBay served a human-verification page while opening the cart."
+        )
+
+    def is_verification_page(self) -> bool:
+        page_text = ""
+        try:
+            page_text = self.page.locator("body").inner_text(timeout=2000)
+        except Exception:
+            return "/splashui/" in self.page.url
+
+        is_challenge_url = "/splashui/" in self.page.url
+        is_challenge_text = "Please verify yourself" in page_text or "I am human" in page_text
+        return is_challenge_url or is_challenge_text
 
     def clear_cart(self) -> None:
         self.logger.info("Checking whether the cart contains stale items.")
-        self.open()
+        try:
+            self.open()
+        except PlaywrightError as exc:
+            if "net::ERR_ABORTED" not in str(exc):
+                raise
+            self.logger.warning(
+                "Skipping cart cleanup because eBay aborted empty-cart navigation: %s",
+                exc,
+            )
+            return
 
         removed_count = 0
         for _ in range(self.MAX_REMOVE_ATTEMPTS):

@@ -82,6 +82,8 @@ def main():
             timezone_id="America/New_York"
         )
         page = context.new_page()
+        page.set_default_timeout(60_000)
+        page.set_default_navigation_timeout(60_000)
         
         try:
             # Step 1: Identification (הזדהות)

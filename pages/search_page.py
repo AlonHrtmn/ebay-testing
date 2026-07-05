@@ -3,6 +3,7 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from typing import Iterable
+from urllib.parse import quote_plus
 
 from playwright.sync_api import Locator, Page
 
@@ -122,13 +123,23 @@ class SearchPage(BasePage):
     def execute_search(self, query: str) -> None:
         self.logger.info("Searching eBay for: %s", query)
         self.open()
-        self.fill_input(self.SEARCH_INPUT, query)
-        if not self.submit_search_with_button():
-            self.logger.info("Search button was unavailable; submitting search with Enter.")
-            self.page.press(self.SEARCH_INPUT, "Enter")
+        if self.has_visible_element(self.SEARCH_INPUT, timeout=self.SHORT_TIMEOUT_MS):
+            self.fill_input(self.SEARCH_INPUT, query)
+            if not self.submit_search_with_button():
+                self.logger.info("Search button was unavailable; submitting search with Enter.")
+                self.page.press(self.SEARCH_INPUT, "Enter")
+        else:
+            self.logger.warning(
+                "Search input was unavailable; opening search results URL directly."
+            )
+            self.navigate(self.search_url(query), wait_until="domcontentloaded")
         self.wait_for_page_ready()
         self.wait_for_search_results_shell()
         self.apply_buy_it_now_filter()
+
+    @classmethod
+    def search_url(cls, query: str) -> str:
+        return f"{cls.EBAY_HOME_URL}/sch/i.html?_nkw={quote_plus(query)}"
 
     def submit_search_with_button(self) -> bool:
         search_button = self.page.get_by_role("button", name=self.SEARCH_BUTTON_NAME, exact=True)

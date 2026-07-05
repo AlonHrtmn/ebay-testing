@@ -1,10 +1,12 @@
 import os
 import json
+import pytest
 from playwright.sync_api import Page
 from pages.login_page import LoginPage
 from pages.search_page import SearchPage
 from pages.product_page import ProductPage
 from pages.cart_page import CartPage
+from utils.exceptions import EbayVerificationRequired
 
 def load_test_data():
     """Reads input configurations from config/test_data.json"""
@@ -27,21 +29,24 @@ def test_ebay_shopping_flow(page: Page):
     product_page = ProductPage(page)
     cart_page = CartPage(page)
     
-    # Step 1: Identification (הזדהות)
-    login_page.login_stub(username, password)
-    
-    # Clear cart to ensure fresh run starts with 0 items
-    cart_page.clear_cart()
-    
-    # Step 2: Search and gather matching URLs (with price constraint and pagination)
-    urls = search_page.assertSearchItemsFound(search_query, max_price, item_limit)
-    
-    # Step 3: Add all retrieved items to the cart (handling variants randomly if present)
-    items_added = product_page.assertItemsAddedToCart(
-        urls,
-        max_price=max_price,
-        desired_count=item_limit,
-    )
-    
-    # Step 4: Open cart page, retrieve subtotal, and verify budget limit
-    cart_page.assertCartTotalNotExceeds(max_price, items_added)
+    try:
+        # Step 1: Identification (הזדהות)
+        login_page.login_stub(username, password)
+
+        # Clear cart to ensure fresh run starts with 0 items
+        cart_page.clear_cart()
+
+        # Step 2: Search and gather matching URLs (with price constraint and pagination)
+        urls = search_page.assertSearchItemsFound(search_query, max_price, item_limit)
+
+        # Step 3: Add all retrieved items to the cart (handling variants randomly if present)
+        items_added = product_page.assertItemsAddedToCart(
+            urls,
+            max_price=max_price,
+            desired_count=item_limit,
+        )
+
+        # Step 4: Open cart page, retrieve subtotal, and verify budget limit
+        cart_page.assertCartTotalNotExceeds(max_price, items_added)
+    except EbayVerificationRequired as exc:
+        pytest.skip(str(exc))

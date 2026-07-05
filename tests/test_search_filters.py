@@ -28,3 +28,7 @@ def test_search_rejects_placeholder_image_urls():
 
 def test_search_accepts_real_image_urls():
     assert SearchPage.is_real_image_url("https://i.ebayimg.com/images/g/example/s-l500.jpg")
+
+
+def test_search_url_encodes_query_terms():
+    assert SearchPage.search_url("running shoes") == "https://www.ebay.com/sch/i.html?_nkw=running+shoes"

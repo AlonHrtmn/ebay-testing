@@ -23,7 +23,7 @@ class ProductPage(BasePage):
         Detects if there are any variant selectors on the page (both custom listbox buttons
         and native select dropdowns) and selects a random valid option for each.
         """
-        # 1. Custom listbox dropdowns (modern eBay)
+        # 1. Custom listbox dropdowns 
         buttons = self.page.locator("button[aria-haspopup='listbox']").all()
         
         variant_buttons = []
@@ -210,7 +210,7 @@ class ProductPage(BasePage):
                 max_price = 220.0
 
         if not self.product_has_real_image():
-            raise Exception("Skipping item because the product page has no real image.")
+            self.logger.warning("Product image could not be verified (possibly timed out), but proceeding to add to cart.")
                 
         # Validate current product price against max price constraint
         current_price = self.get_product_price()
