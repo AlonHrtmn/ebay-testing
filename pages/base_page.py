@@ -22,8 +22,8 @@ class BasePage:
         self.logger.info("Navigating to %s", url)
         self.page.goto(url, wait_until=wait_until)
 
-    def wait_for_page_ready(self, timeout: int = DEFAULT_TIMEOUT_MS) -> None:
-        self.page.wait_for_load_state("load", timeout=timeout)
+    def wait_for_page_ready(self, timeout: int = DEFAULT_TIMEOUT_MS, state: str = "load") -> None:
+        self.page.wait_for_load_state(state, timeout=timeout)
 
     def pause(self, milliseconds: int) -> None:
         self.page.wait_for_timeout(milliseconds)

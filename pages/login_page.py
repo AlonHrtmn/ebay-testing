@@ -16,8 +16,8 @@ class LoginPage(BasePage):
 
     def start_guest_session(self) -> bool:
         self.logger.info("Starting eBay guest session.")
-        self.navigate(self.EBAY_HOME_URL)
-        self.wait_for_page_ready()
+        self.navigate(self.EBAY_HOME_URL, wait_until="domcontentloaded")
+        self.wait_for_page_ready(state="domcontentloaded")
         self.take_screenshot("session_initialization.png")
         self.logger.info("Guest session established.")
         return True

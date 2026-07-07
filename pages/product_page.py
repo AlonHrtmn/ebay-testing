@@ -1,4 +1,6 @@
 import random
+from typing import Literal, Optional
+
 from playwright.sync_api import Page
 from pages.base_page import BasePage
 from pages.search_page import SearchPage
@@ -26,15 +28,7 @@ class ProductPage(BasePage):
         # 1. Custom listbox dropdowns 
         buttons = self.page.locator("button[aria-haspopup='listbox']").all()
         
-        variant_buttons = []
-        for btn in buttons:
-            if not btn.is_visible():
-                continue
-            # Check if this button is within a SKU/variant wrapper
-            parent_html = btn.evaluate("el => el.parentElement ? el.parentElement.outerHTML : ''")
-            is_variant = "sku" in parent_html.lower() or "msku" in parent_html.lower()
-            if is_variant:
-                variant_buttons.append(btn)
+        variant_buttons = [btn for btn in buttons if btn.is_visible() and any(x in btn.evaluate("el => el.parentElement ? el.parentElement.outerHTML.toLowerCase() : ''") for x in ("sku", "msku"))]
                 
         if len(variant_buttons) > 0:
             self.logger.info(f"Found {len(variant_buttons)} custom variant dropdowns to select.")
@@ -194,7 +188,7 @@ class ProductPage(BasePage):
             self.logger.warning("Could not verify product image: %s", exc)
             return False
 
-    def add_to_cart(self, max_price: float = None, screenshot_name=None):
+    def add_to_cart(self, max_price: Optional[float] = None, screenshot_name: Optional[str] = None):
         self.logger.info("Adding item to cart...")
         
         # Load max_price if not passed
@@ -214,9 +208,13 @@ class ProductPage(BasePage):
                 
         # Validate current product price against max price constraint
         current_price = self.get_product_price()
-        if current_price > 0.0 and current_price > max_price:
-            self.logger.warning(f"Item price {current_price} exceeds limit of {max_price}!")
-            raise Exception(f"Item price {current_price} exceeds budget constraint of {max_price}")
+        if (
+             max_price is not None
+             and current_price > 0.0
+             and current_price > max_price
+        ):
+           self.logger.warning(f"Item price {current_price} exceeds limit of {max_price}!")
+           raise Exception(f"Item price {current_price} exceeds budget constraint of {max_price}" )
         
         # Check and select variants first
         self.select_random_variants()
@@ -224,7 +222,8 @@ class ProductPage(BasePage):
         # Look for the Add to Cart button, polling up to 5 seconds to allow page stability after variant selections
         atc_button = None
         for attempt in range(6):
-            for role in ["button", "link"]:
+            roles: list[Literal["button", "link"]] = ["button", "link"]
+            for role in roles:
                 loc = self.page.get_by_role(role, name="Add to cart", exact=True)
                 if loc.count() > 0 and loc.first.is_visible():
                     atc_button = loc.first
@@ -281,7 +280,12 @@ class ProductPage(BasePage):
             self.logger.error("Add to Cart button was not found or is not visible.")
             raise Exception("Add to Cart button not found on product page")
  
-    def addItemsToCart(self, urls: list, max_price: float = None, desired_count: int = None) -> int:
+    def addItemsToCart(
+        self,
+        urls: list,
+        max_price: Optional[float] = None,
+        desired_count: Optional[int] = None,
+    ) -> int:
         self.logger.info(f"Starting addItemsToCart for {len(urls)} items.")
         added_count = 0
         target_count = desired_count or len(urls)
@@ -303,7 +307,12 @@ class ProductPage(BasePage):
                 
         return added_count
 
-    def assertItemsAddedToCart(self, urls: list, max_price: float = None, desired_count: int = None) -> int:
+    def assertItemsAddedToCart(
+        self,
+        urls: list,
+        max_price: Optional[float] = None,
+        desired_count: Optional[int] = None,
+    ) -> int:
         """
         Navigates to each item, adds to cart, and asserts that at least one item was added successfully.
         """

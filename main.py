@@ -1,5 +1,8 @@
 import os
 import json
+import time
+from typing import Optional
+
 from playwright.sync_api import sync_playwright
 from pages.login_page import LoginPage
 from pages.search_page import SearchPage
@@ -29,7 +32,12 @@ def searchItemsByNameUnderPrice(page, query: str, max_price: float, limit: int =
     search_page = SearchPage(page)
     return search_page.searchItemsByNameUnderPrice(query, max_price, limit)
 
-def addItemsToCart(page, urls: list, max_price: float = None, desired_count: int = None) -> int:
+def addItemsToCart(
+    page,
+    urls: list,
+    max_price: Optional[float] = None,
+    desired_count: Optional[int] = None,
+) -> int:
     """
     Navigates to each item URL, handles option selects, and clicks Add to Cart.
     Saves screenshot of each.
@@ -51,29 +59,61 @@ def clear_cart(page):
     cart_page = CartPage(page)
     cart_page.clear_cart()
 
+def page_is_open(page) -> bool:
+    return page is not None and not page.is_closed()
+
+def format_elapsed(seconds: float) -> str:
+    """Formats elapsed seconds as HH:MM:SS."""
+    total_seconds = int(seconds)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+def env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
 # --- Standalone Script Execution ---
 
 def main():
-    print("Loading test configuration...")
+    start_time = time.perf_counter()
+
+    def log(message: str = "") -> None:
+        elapsed = format_elapsed(time.perf_counter() - start_time)
+        print(f"[elapsed {elapsed}] {message}" if message else "")
+
+    log("Loading test configuration...")
     config = load_config()
     query = config.get("search_query", "shoes")
     max_price = config.get("max_price", 220.0)
     limit = config.get("item_limit", 5)
     username = config.get("username", "")
     password = config.get("password", "")
+    headless = env_flag("EBAY_HEADLESS", env_flag("PLAYWRIGHT_HEADLESS", False))
+    os.environ["PLAYWRIGHT_HEADLESS"] = "1" if headless else "0"
     
-    print(f"Starting eBay automation flow for '{query}' under budget {max_price}...")
+    log(
+        "Starting eBay automation flow: "
+        f"search='{query}', max item price={max_price}, target items={limit}."
+    )
+    if headless:
+        log("Headless browser mode is ON; progress will be reported in this terminal.")
+    else:
+        log("Headed browser mode is ON; you can watch the browser while terminal timing continues.")
     
     with sync_playwright() as p:
-        # We launch the browser in HEADED mode to watch it run live
-        print("Launching browser in headed mode...")
+        mode_name = "headless" if headless else "headed"
+        log(f"Launching Chromium in {mode_name} mode...")
         browser = p.chromium.launch(
-            headless=False, 
-            slow_mo=500,  # Pause for 500ms between actions for viewing
+            headless=headless,
+            slow_mo=0 if headless else 500,  # Slow only when the browser is visible.
             args=["--start-maximized"],
         )
         
         # Apply anti-bot configurations
+        log("Creating browser context with eBay-friendly locale, timezone, and viewport settings...")
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
             device_scale_factor=1,
@@ -87,44 +127,71 @@ def main():
         
         try:
             # Step 1: Identification (הזדהות)
-            print("\n--- Step 1: Executing login (Identification) ---")
+            log("\n--- Step 1: Starting guest/login session setup ---")
+            step_start = time.perf_counter()
             login(page, username, password)
+            log(f"Step 1 complete: browser session is ready in {format_elapsed(time.perf_counter() - step_start)}.")
             
             if os.getenv("EBAY_CLEAR_CART_BEFORE_RUN") == "1":
-                print("\n--- Clearing shopping cart before adding new items ---")
+                log("\n--- Clearing shopping cart before adding new items ---")
+                step_start = time.perf_counter()
                 clear_cart(page)
+                log(f"Cart cleanup complete in {format_elapsed(time.perf_counter() - step_start)}.")
             
             # Step 2: Search
-            print("\n--- Step 2: Executing searchItemsByNameUnderPrice ---")
+            log(
+                "\n--- Step 2: Searching eBay "
+                f"for '{query}' under {max_price}, collecting up to {limit} item URL(s) ---"
+            )
+            step_start = time.perf_counter()
             urls = searchItemsByNameUnderPrice(page, query, max_price, limit)
 
             if not urls:
-                print("No items matched the search criteria. Exiting.")
-                browser.close()
+                log("No items matched the search criteria. Exiting.")
                 return
             
-            print(f"Collected {len(urls)} matching item URLs.")            
+            log(
+                f"Step 2 complete: collected {len(urls)} matching item URL(s) "
+                f"in {format_elapsed(time.perf_counter() - step_start)}."
+            )
             
                 
             # Step 3: Add to Cart
-            print("\n--- Step 3: Executing addItemsToCart ---")
+            log(
+                "\n--- Step 3: Opening each selected item, choosing valid options, "
+                "and adding to cart ---"
+            )
+            step_start = time.perf_counter()
             items_added = addItemsToCart(page, urls, max_price, desired_count=limit)
-            print(f"Successfully added {items_added} items to the cart.")
+            log(
+                f"Step 3 complete: successfully added {items_added} item(s) "
+                f"in {format_elapsed(time.perf_counter() - step_start)}."
+            )
             
             # Step 4: Verify Cart Subtotal
-            print("\n--- Step 4: Executing assertCartTotalNotExceeds ---")
+            log(
+                "\n--- Step 4: Opening cart and checking subtotal against "
+                f"overall budget {max_price * items_added} ---"
+            )
+            step_start = time.perf_counter()
             assertCartTotalNotExceeds(page, max_price, items_added)
+            log(f"Step 4 complete: cart subtotal verified in {format_elapsed(time.perf_counter() - step_start)}.")
             
-            print("\nFlow completed successfully! Keeping browser open for 3 seconds...")
+            log("\nFlow completed successfully! Keeping browser open for 3 seconds...")
             page.wait_for_timeout(3000)
             
         except Exception as e:
-            print(f"\nExecution encountered an error: {e}")
-            page.wait_for_timeout(5000) # Give you time to look at the screen on error
+            log(f"\nExecution encountered an error: {e}")
+            if page_is_open(page):
+                page.wait_for_timeout(5000) # Give you time to look at the screen on error
+            else:
+                log("Browser page is already closed; skipping error pause.")
             
         finally:
-            print("Closing browser context...")
-            browser.close()
+            log("Closing browser context...")
+            if browser.is_connected():
+                browser.close()
+            log(f"Total elapsed time: {format_elapsed(time.perf_counter() - start_time)}.")
 
 if __name__ == "__main__":
     main()
