@@ -1,24 +1,21 @@
 import random
 from typing import Literal, Optional
 
-from playwright.sync_api import Page
 from pages.base_page import BasePage
 from pages.search_page import SearchPage
 
 class ProductPage(BasePage):
-    def __init__(self, page: Page):
-        super().__init__(page)
-        # Selectors for variant dropdowns (eBay usually uses select elements with classes or IDs starting with 'msku-sel')
-        self.variant_selects = "select[id^='msku-sel-'], select.msku-sel"
-        self.add_to_cart_btn = "#isCartBtn_btn, #atcRedesignId_btn, [data-testid='x-atc-action'] a, a:has-text('Add to cart')"
-        self.cart_popup_close = "#lightbox-close, .vi-overlay-close, button.shoptile-close-btn, button[aria-label='Close overlay'], button[aria-label='Close dialog']"
-        self.product_image_selectors = (
-            "#PicturePanel img, "
-            "[data-testid='ux-image-carousel-container'] img, "
-            ".ux-image-carousel-item img, "
-            ".ux-image-grid img, "
-            "img[src*='i.ebayimg.com']"
-        )
+    # Selectors for variant dropdowns (eBay usually uses select elements with classes or IDs starting with 'msku-sel')
+    variant_selects = "select[id^='msku-sel-'], select.msku-sel"
+    add_to_cart_btn = "#isCartBtn_btn, #atcRedesignId_btn, [data-testid='x-atc-action'] a, a:has-text('Add to cart')"
+    cart_popup_close = "#lightbox-close, .vi-overlay-close, button.shoptile-close-btn, button[aria-label='Close overlay'], button[aria-label='Close dialog']"
+    product_image_selectors = (
+        "#PicturePanel img, "
+        "[data-testid='ux-image-carousel-container'] img, "
+        ".ux-image-carousel-item img, "
+        ".ux-image-grid img, "
+        "img[src*='i.ebayimg.com']"
+    )
 
     def select_random_variants(self):
         """

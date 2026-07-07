@@ -1,7 +1,7 @@
 import os
 import time
 
-from playwright.sync_api import Error as PlaywrightError, Page
+from playwright.sync_api import Error as PlaywrightError
 
 from pages.base_page import BasePage
 from utils.exceptions import EbayVerificationRequired
@@ -105,9 +105,6 @@ class CartPage(BasePage):
     }
     """
 
-    def __init__(self, page: Page):
-        super().__init__(page)
-
     def open(self) -> None:
         self.logger.info("Navigating to %s", self.CART_URL)
         try:
@@ -137,7 +134,11 @@ class CartPage(BasePage):
         if not self.is_verification_page():
             return
 
-        is_headless = os.getenv("PLAYWRIGHT_HEADLESS") == "1" or "CI" in os.environ
+        is_headless = (
+            os.getenv("PLAYWRIGHT_HEADLESS") == "1"
+            or os.getenv("EBAY_HEADLESS") == "1"
+            or "CI" in os.environ
+        )
         if is_headless:
             self.logger.warning("eBay verification page detected in headless mode. Aborting immediately.")
             raise EbayVerificationRequired(

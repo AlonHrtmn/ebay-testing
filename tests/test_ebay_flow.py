@@ -21,8 +21,27 @@ def load_test_data():
 
 def format_elapsed(seconds: float) -> str:
     total_seconds = int(seconds)
-    minutes, secs = divmod(total_seconds, 60)
-    return f"{minutes:02d}:{secs:02d}"
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, secs = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+
+def config_float(config: dict, name: str, default: float) -> float:
+    try:
+        value = float(config.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(f"Config value '{name}' must be a number.") from exc
+    assert value > 0, f"{name} must be greater than zero"
+    return value
+
+
+def config_int(config: dict, name: str, default: int) -> int:
+    try:
+        value = int(config.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise AssertionError(f"Config value '{name}' must be an integer.") from exc
+    assert value > 0, f"{name} must be greater than zero"
+    return value
 
 
 def test_ebay_shopping_flow(page: Page):
@@ -34,11 +53,11 @@ def test_ebay_shopping_flow(page: Page):
 
     # Load parameters
     data = load_test_data()
-    search_query = data.get("search_query", "shoes")
-    max_price = data.get("max_price", 220.0)
-    item_limit = data.get("item_limit", 5)
-    username = data.get("username", "")
-    password = data.get("password", "")
+    search_query = str(data.get("search_query", "shoes")).strip() or "shoes"
+    max_price = config_float(data, "max_price", 220.0)
+    item_limit = config_int(data, "item_limit", 5)
+    username = str(data.get("username", ""))
+    password = str(data.get("password", ""))
 
     # Instantiate POM components
     login_page = LoginPage(page)
@@ -79,6 +98,7 @@ def test_ebay_shopping_flow(page: Page):
             max_price=max_price,
             desired_count=item_limit,
         )
+        assert items_added > 0, "No items were added to the cart."
         progress(f"Added {items_added} item(s) to the cart.")
 
         # Step 4: Open cart page, retrieve subtotal, and verify budget limit.

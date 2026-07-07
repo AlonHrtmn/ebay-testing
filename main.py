@@ -75,6 +75,24 @@ def env_flag(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
+def config_float(config: dict, name: str, default: float) -> float:
+    try:
+        value = float(config.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Config value '{name}' must be a number.") from exc
+    if value <= 0:
+        raise ValueError(f"Config value '{name}' must be greater than 0.")
+    return value
+
+def config_int(config: dict, name: str, default: int) -> int:
+    try:
+        value = int(config.get(name, default))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Config value '{name}' must be an integer.") from exc
+    if value <= 0:
+        raise ValueError(f"Config value '{name}' must be greater than 0.")
+    return value
+
 # --- Standalone Script Execution ---
 
 def main():
@@ -86,13 +104,12 @@ def main():
 
     log("Loading test configuration...")
     config = load_config()
-    query = config.get("search_query", "shoes")
-    max_price = config.get("max_price", 220.0)
-    limit = config.get("item_limit", 5)
-    username = config.get("username", "")
-    password = config.get("password", "")
+    query = str(config.get("search_query", "shoes")).strip() or "shoes"
+    max_price = config_float(config, "max_price", 220.0)
+    limit = config_int(config, "item_limit", 5)
+    username = str(config.get("username", ""))
+    password = str(config.get("password", ""))
     headless = env_flag("EBAY_HEADLESS", env_flag("PLAYWRIGHT_HEADLESS", False))
-    os.environ["PLAYWRIGHT_HEADLESS"] = "1" if headless else "0"
     
     log(
         "Starting eBay automation flow: "
@@ -103,6 +120,9 @@ def main():
     else:
         log("Headed browser mode is ON; you can watch the browser while terminal timing continues.")
     
+    browser = None
+    page = None
+
     with sync_playwright() as p:
         mode_name = "headless" if headless else "headed"
         log(f"Launching Chromium in {mode_name} mode...")
@@ -112,7 +132,7 @@ def main():
             args=["--start-maximized"],
         )
         
-        # Apply anti-bot configurations
+        # Create a realistic browser context.
         log("Creating browser context with eBay-friendly locale, timezone, and viewport settings...")
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
@@ -183,13 +203,22 @@ def main():
         except Exception as e:
             log(f"\nExecution encountered an error: {e}")
             if page_is_open(page):
+                try:
+                    screenshots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
+                    os.makedirs(screenshots_dir, exist_ok=True)
+                    screenshot_path = os.path.join(screenshots_dir, "main_error.png")
+                    page.screenshot(path=screenshot_path, full_page=True)
+                    log(f"Error screenshot saved to: {screenshot_path}")
+                except Exception as screenshot_error:
+                    log(f"Could not capture error screenshot: {screenshot_error}")
                 page.wait_for_timeout(5000) # Give you time to look at the screen on error
             else:
                 log("Browser page is already closed; skipping error pause.")
+            raise
             
         finally:
             log("Closing browser context...")
-            if browser.is_connected():
+            if browser is not None and browser.is_connected():
                 browser.close()
             log(f"Total elapsed time: {format_elapsed(time.perf_counter() - start_time)}.")
 

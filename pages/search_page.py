@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Iterable
 from urllib.parse import quote_plus
 
-from playwright.sync_api import Locator, Page
+from playwright.sync_api import Locator
 
 from pages.base_page import BasePage
 from utils.helpers import parse_price
@@ -113,9 +113,6 @@ class SearchPage(BasePage):
         "a[href*='/itm/']"
     )
 
-    def __init__(self, page: Page):
-        super().__init__(page)
-
     def open(self) -> None:
         if not re.search(r"https://(www|www\.sandbox)\.ebay\.com(?:/|$)", self.page.url):
             self.navigate(self.EBAY_HOME_URL)
@@ -181,7 +178,7 @@ class SearchPage(BasePage):
         self.logger.info("Applying max price filter: %s", max_price)
         selector = f"input[name='{self.PRICE_MAX_INPUT_NAME}']"
 
-        if not self.has_visible_element(selector, timeout=3000):
+        if not self.has_visible_element(selector, timeout=3000, warn_on_timeout=False):
             self.logger.info("Price filter input was not available; filtering client-side.")
             return False
 
