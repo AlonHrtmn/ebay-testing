@@ -22,6 +22,8 @@ class ProductPage(BasePage):
         Detects if there are any variant selectors on the page (both custom listbox buttons
         and native select dropdowns) and selects a random valid option for each.
         """
+        self.dismiss_blocking_overlays("variant selection")
+
         # 1. Custom listbox dropdowns 
         buttons = self.page.locator("button[aria-haspopup='listbox']").all()
         
@@ -34,8 +36,18 @@ class ProductPage(BasePage):
                 self.logger.info(f"Dropdown {index+1}: Click to open '{btn_text.strip()}'")
                 
                 try:
-                    btn.click()
-                    self.page.wait_for_timeout(1000)
+                    for attempt in range(2):
+                        try:
+                            self.dismiss_blocking_overlays(f"opening custom variant dropdown {index+1}")
+                            btn.click(timeout=5000)
+                            self.page.wait_for_timeout(1000)
+                            break
+                        except Exception:
+                            if attempt == 0 and self.dismiss_blocking_overlays(
+                                f"retrying custom variant dropdown {index+1}"
+                            ):
+                                continue
+                            raise
                     
                     aria_controls = btn.get_attribute("aria-controls")
                     if aria_controls:
@@ -242,6 +254,7 @@ class ProductPage(BasePage):
             self.page.wait_for_timeout(1000)
                 
         if atc_button:
+            self.dismiss_blocking_overlays("Add to Cart click")
             atc_button.click()
             self.page.wait_for_load_state("load")
             self.logger.info("Clicked Add to Cart button.")
@@ -294,6 +307,7 @@ class ProductPage(BasePage):
             self.logger.info(f"Processing item {idx+1}/{len(urls)}: {url}")
             try:
                 self.navigate(url)
+                self.dismiss_blocking_overlays("product page load")
                 screenshot_name = f"item_{added_count+1}_added.png"
                 self.add_to_cart(max_price=max_price, screenshot_name=screenshot_name)
                 added_count += 1
@@ -301,6 +315,12 @@ class ProductPage(BasePage):
                 self.logger.error(f"Failed to add item {url} to cart: {e}")
                 # We save a screenshot on failure to diagnose
                 self.take_screenshot(f"item_{idx+1}_failure.png")
+                remaining_samples = len(urls) - idx - 1
+                if added_count < target_count and remaining_samples > 0:
+                    self.logger.info(
+                        "Trying another sample after failed item; %s backup sample(s) remain.",
+                        remaining_samples,
+                    )
                 
         return added_count
 

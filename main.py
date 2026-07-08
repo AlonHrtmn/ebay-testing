@@ -161,7 +161,8 @@ def main():
             # Step 2: Search
             log(
                 "\n--- Step 2: Searching eBay "
-                f"for '{query}' under {max_price}, collecting up to {limit} item URL(s) ---"
+                f"for '{query}' under {max_price}, collecting backup samples "
+                f"for {limit} target item(s) ---"
             )
             step_start = time.perf_counter()
             urls = searchItemsByNameUnderPrice(page, query, max_price, limit)
@@ -172,7 +173,8 @@ def main():
             
             log(
                 f"Step 2 complete: collected {len(urls)} matching item URL(s) "
-                f"in {format_elapsed(time.perf_counter() - step_start)}."
+                f"in {format_elapsed(time.perf_counter() - step_start)}; "
+                f"will add the first {limit} that work."
             )
             
                 

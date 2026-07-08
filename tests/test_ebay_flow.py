@@ -86,10 +86,13 @@ def test_ebay_shopping_flow(page: Page):
         # Step 2: Search and gather matching URLs with price constraint and pagination.
         progress(
             f"Searching eBay for '{search_query}' under {max_price}; "
-            f"collecting up to {item_limit} matching item sample(s)."
+            f"collecting backup samples for {item_limit} target item(s)."
         )
         urls = search_page.assertSearchItemsFound(search_query, max_price, item_limit)
-        progress(f"Collected {len(urls)} '{search_query}' sample URL(s) that match the price filter.")
+        progress(
+            f"Collected {len(urls)} '{search_query}' sample URL(s) that match the price filter; "
+            f"will add the first {item_limit} that work."
+        )
 
         # Step 3: Add all retrieved items to the cart, handling variants randomly if present.
         progress("Opening collected samples and adding valid items to the cart.")

@@ -112,6 +112,7 @@ class SearchPage(BasePage):
         "div.srp-river-results li.s-item, "
         "a[href*='/itm/']"
     )
+    SAMPLE_POOL_MULTIPLIER = 3
 
     def open(self) -> None:
         if not re.search(r"https://(www|www\.sandbox)\.ebay\.com(?:/|$)", self.page.url):
@@ -207,14 +208,18 @@ class SearchPage(BasePage):
         self.execute_search(query)
         self.apply_max_price_filter(max_price)
 
-        fallback_pool_size = max(limit * 3, limit)
+        fallback_pool_size = max(limit * self.SAMPLE_POOL_MULTIPLIER, limit + 5)
         candidates = self.collect_candidates(
             query=query,
             max_price=max_price,
             target_count=fallback_pool_size,
         )
-        selected = self.select_candidate_urls(candidates, limit)
-        self.logger.info("Selected %s candidate item URL(s).", len(selected))
+        selected = self.select_candidate_urls(candidates, fallback_pool_size)
+        self.logger.info(
+            "Selected %s candidate item URL(s) for a target of %s cart item(s).",
+            len(selected),
+            limit,
+        )
         return selected
 
     def collect_candidates(self, query: str, max_price: float, target_count: int) -> list[SearchCandidate]:

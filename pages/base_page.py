@@ -15,6 +15,25 @@ class BasePage:
     FALLBACK_SELECTOR_TIMEOUT_MS = 1_000
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
     SCREENSHOTS_DIR = PROJECT_ROOT / "screenshots"
+    BLOCKING_OVERLAY_SELECTORS = (
+        "[data-testid='x-onboarding-modal'][aria-hidden='false']",
+        ".x-onboarding-modal[aria-hidden='false']",
+        ".lightbox-dialog[aria-modal='true']",
+        "[role='dialog'][aria-modal='true']",
+    )
+    OVERLAY_DISMISS_SELECTORS = (
+        "button[aria-label='Close']",
+        "button[aria-label='Close dialog']",
+        "button[aria-label='Close overlay']",
+        "button[aria-label*='close' i]",
+        "#lightbox-close",
+        ".vi-overlay-close",
+        "button:has-text('Got it')",
+        "button:has-text('Continue')",
+        "button:has-text('No thanks')",
+        "button:has-text('Maybe later')",
+        "button:has-text('Skip')",
+    )
 
     def __init__(self, page: Page):
         self.page = page
@@ -126,6 +145,51 @@ class BasePage:
                 return True
         self.logger.info("No fallback selectors were visible: %s", selectors)
         return False
+
+    def dismiss_blocking_overlays(self, reason: str = "page action") -> bool:
+        """
+        Dismiss eBay lightboxes that can intercept pointer events.
+
+        eBay sometimes shows an onboarding/info modal after product navigation. It is
+        unrelated to the shopping flow, but Playwright correctly refuses to click
+        controls behind it unless we close it first.
+        """
+        dismissed = False
+
+        for overlay_selector in self.BLOCKING_OVERLAY_SELECTORS:
+            overlay = self.locator(overlay_selector).first
+            try:
+                if overlay.count() == 0 or not overlay.is_visible(timeout=500):
+                    continue
+            except Exception:
+                continue
+
+            for dismiss_selector in self.OVERLAY_DISMISS_SELECTORS:
+                dismiss_button = overlay.locator(dismiss_selector).first
+                try:
+                    if dismiss_button.count() > 0 and dismiss_button.is_visible(timeout=500):
+                        dismiss_button.click(timeout=2000)
+                        self.pause(500)
+                        self.logger.info(
+                            "Dismissed blocking overlay before %s using selector: %s",
+                            reason,
+                            dismiss_selector,
+                        )
+                        dismissed = True
+                        break
+                except Exception:
+                    continue
+
+            try:
+                if overlay.is_visible(timeout=500):
+                    self.page.keyboard.press("Escape")
+                    self.pause(500)
+                    dismissed = True
+                    self.logger.info("Dismissed blocking overlay before %s using Escape.", reason)
+            except Exception:
+                pass
+
+        return dismissed
 
     def take_failure_screenshot(self, prefix: str, selector: Selector) -> None:
         safe_selector = re.sub(r"[^A-Za-z0-9_.-]+", "_", selector).strip("_")[:80]
