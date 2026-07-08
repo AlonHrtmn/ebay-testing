@@ -42,6 +42,93 @@ sequenceDiagram
 
 ---
 
+## 📐 Object-Oriented Architecture (UML Class Diagram)
+
+The class diagram below visualizes the inheritance structure and class relationships of the Page Object Model (POM) implementation:
+
+```mermaid
+classDiagram
+    class BasePage {
+        +Page page
+        +Logger logger
+        +navigate(url, wait_until)
+        +wait_for_page_ready(timeout)
+        +pause(milliseconds)
+        +take_screenshot(name)
+        +locator(selector)
+        +visible_locator(selector, timeout)
+        +has_visible_element(selector, timeout)
+        +click_element(selector, timeout)
+        +fill_input(selector, value, timeout)
+        +dismiss_blocking_overlays(context)
+    }
+
+    class LoginPage {
+        +open_login_page()
+        +start_guest_session()
+        +login_stub(username, password)
+    }
+
+    class SearchPage {
+        +open()
+        +execute_search(query)
+        +apply_buy_it_now_filter()
+        +apply_max_price_filter(max_price)
+        +search_items_by_name_under_price(query, max_price, limit)
+        +collect_candidates(query, max_price, target_count)
+        +go_to_next_results_page()
+        +select_candidate_urls(candidates, limit)
+        +assert_search_items_found(query, max_price, limit)
+    }
+
+    class ProductPage {
+        +select_random_variants()
+        +get_product_price()
+        +product_has_real_image()
+        +add_to_cart(max_price, screenshot_name)
+        +addItemsToCart(urls, max_price, desired_count)
+        +assertItemsAddedToCart(urls, max_price, desired_count)
+    }
+
+    class CartPage {
+        +open()
+        +is_cart_page()
+        +is_verification_page()
+        +raise_if_verification_required()
+        +clear_cart()
+        +get_subtotal()
+        +wait_for_cart_item_images(expected_count)
+        +assert_cart_total_not_exceeds(budget_per_item, items_count)
+    }
+
+    class MainScript {
+        +main()
+    }
+
+    class TestSuite {
+        +test_ebay_shopping_flow(page)
+    }
+
+    %% Inheritance Relationships
+    BasePage <|-- LoginPage : inherits
+    BasePage <|-- SearchPage : inherits
+    BasePage <|-- ProductPage : inherits
+    BasePage <|-- CartPage : inherits
+
+    %% Usage/Dependency Relationships
+    MainScript ..> LoginPage : instantiates & uses
+    MainScript ..> SearchPage : instantiates & uses
+    MainScript ..> ProductPage : instantiates & uses
+    MainScript ..> CartPage : instantiates & uses
+
+    TestSuite ..> LoginPage : instantiates & uses
+    TestSuite ..> SearchPage : instantiates & uses
+    TestSuite ..> ProductPage : instantiates & uses
+    TestSuite ..> CartPage : instantiates & uses
+```
+
+---
+
 ## 📋 Features & Architecture
 
 *   **Page Object Model (POM)**: Separates page-specific selector elements and browser interaction methods from the test logic.
