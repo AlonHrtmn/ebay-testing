@@ -1,7 +1,7 @@
 import os
 import time
 
-from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from pages.base_page import BasePage
 from utils.exceptions import EbayVerificationRequired
@@ -119,7 +119,7 @@ class CartPage(BasePage):
 
         try:
             self.page.wait_for_load_state("domcontentloaded", timeout=self.DEFAULT_TIMEOUT_MS)
-        except Exception as exc:
+        except PlaywrightTimeoutError as exc:
             if not self.is_cart_page():
                 raise
             self.logger.warning("Cart DOM ready wait did not complete: %s", exc)

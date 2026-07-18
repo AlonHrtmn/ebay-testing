@@ -1,22 +1,13 @@
 import os
-import json
 import time
-
 import pytest
 from playwright.sync_api import Page
-
 from pages.login_page import LoginPage
 from pages.search_page import SearchPage
 from pages.product_page import ProductPage
 from pages.cart_page import CartPage
 from utils.exceptions import EbayVerificationRequired
-
-
-def load_test_data():
-    """Reads input configurations from config/test_data.json"""
-    config_path = os.path.join(os.path.dirname(__file__), "..", "config", "test_data.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+from utils.config import load_config, positive_float, positive_int
 
 
 def format_elapsed(seconds: float) -> str:
@@ -24,24 +15,6 @@ def format_elapsed(seconds: float) -> str:
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
-
-
-def config_float(config: dict, name: str, default: float) -> float:
-    try:
-        value = float(config.get(name, default))
-    except (TypeError, ValueError) as exc:
-        raise AssertionError(f"Config value '{name}' must be a number.") from exc
-    assert value > 0, f"{name} must be greater than zero"
-    return value
-
-
-def config_int(config: dict, name: str, default: int) -> int:
-    try:
-        value = int(config.get(name, default))
-    except (TypeError, ValueError) as exc:
-        raise AssertionError(f"Config value '{name}' must be an integer.") from exc
-    assert value > 0, f"{name} must be greater than zero"
-    return value
 
 
 def test_ebay_shopping_flow(page: Page):
@@ -52,10 +25,16 @@ def test_ebay_shopping_flow(page: Page):
         print(f"\n[eBay flow {elapsed}] {message}", flush=True)
 
     # Load parameters
-    data = load_test_data()
-    search_query = str(data.get("search_query", "shoes")).strip() or "shoes"
-    max_price = config_float(data, "max_price", 220.0)
-    item_limit = config_int(data, "item_limit", 5)
+    data = load_config()
+    search_query = str(data.get("search_query", "")).strip()
+    if not search_query:
+       raise ValueError("CRITICAL ERROR: 'search_query' cannot be empty in test_data.json!")
+    max_price = positive_float(data, "max_price", 0)
+    if max_price == 0:
+       raise ValueError("CRITICAL ERROR: 'max_price' must be greater than 0 in test_data.json!")   
+    item_limit = positive_int(data, "item_limit", 0)
+    if item_limit == 0:
+       raise ValueError("CRITICAL ERROR: 'item_limit' must be greater than 0 in test_data.json!")
     username = str(data.get("username", ""))
     password = str(data.get("password", ""))
 

@@ -17,7 +17,7 @@ class ProductPage(BasePage):
         "img[src*='i.ebayimg.com']"
     )
 
-    def select_random_variants(self):
+    def select_random_variants(self) -> None:
         """
         Detects if there are any variant selectors on the page (both custom listbox buttons
         and native select dropdowns) and selects a random valid option for each.
@@ -197,7 +197,11 @@ class ProductPage(BasePage):
             self.logger.warning("Could not verify product image: %s", exc)
             return False
 
-    def add_to_cart(self, max_price: Optional[float] = None, screenshot_name: Optional[str] = None):
+    def add_to_cart(
+        self,
+        max_price: Optional[float] = None,
+        screenshot_name: Optional[str] = None,
+    ) -> None:
         self.logger.info("Adding item to cart...")
         
         # Load max_price if not passed

@@ -1,5 +1,4 @@
 import os
-import json
 import time
 from typing import Optional
 
@@ -8,12 +7,8 @@ from pages.login_page import LoginPage
 from pages.search_page import SearchPage
 from pages.product_page import ProductPage
 from pages.cart_page import CartPage
+from utils.config import load_config, positive_float, positive_int
 
-def load_config():
-    """Reads parameters from config/test_data.json"""
-    config_path = os.path.join(os.path.dirname(__file__), "config", "test_data.json")
-    with open(config_path, "r", encoding="utf-8") as f:
-        return json.load(f)
 
 # --- Top-Level Function Signatures Required by Assignment ---
 
@@ -75,24 +70,6 @@ def env_flag(name: str, default: bool = False) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
-def config_float(config: dict, name: str, default: float) -> float:
-    try:
-        value = float(config.get(name, default))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{name}' must be a number.") from exc
-    if value <= 0:
-        raise ValueError(f"Config value '{name}' must be greater than 0.")
-    return value
-
-def config_int(config: dict, name: str, default: int) -> int:
-    try:
-        value = int(config.get(name, default))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"Config value '{name}' must be an integer.") from exc
-    if value <= 0:
-        raise ValueError(f"Config value '{name}' must be greater than 0.")
-    return value
-
 # --- Standalone Script Execution ---
 
 def main():
@@ -105,8 +82,8 @@ def main():
     log("Loading test configuration...")
     config = load_config()
     query = str(config.get("search_query", "shoes")).strip() or "shoes"
-    max_price = config_float(config, "max_price", 220.0)
-    limit = config_int(config, "item_limit", 5)
+    max_price = positive_float(config, "max_price", 220.0)
+    limit = positive_int(config, "item_limit", 5)
     username = str(config.get("username", ""))
     password = str(config.get("password", ""))
     headless = env_flag("EBAY_HEADLESS", env_flag("PLAYWRIGHT_HEADLESS", False))
@@ -136,6 +113,7 @@ def main():
         log("Creating browser context with eBay-friendly locale, timezone, and viewport settings...")
         context = browser.new_context(
             viewport={"width": 1920, "height": 1080},
+            # record_video_dir="videos/",
             device_scale_factor=1,
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             locale="en-US",
