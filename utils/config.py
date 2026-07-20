@@ -6,6 +6,15 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "test_data.json"
+SUPPORTED_CURRENCIES = {
+    "USD",
+    "ILS",
+    "EUR",
+    "GBP",
+    "AUD",
+    "CAD",
+    "NZD",
+}
 
 
 @dataclass(frozen=True)
@@ -15,6 +24,7 @@ class TestConfig:
     item_limit: int
     username: str
     password: str
+    currency: str
 
 
 def load_config(path: Path = DEFAULT_CONFIG_PATH) -> TestConfig:
@@ -34,12 +44,25 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> TestConfig:
     if item_limit <= 0:
         raise ValueError("'item_limit' must be greater than 0.")
 
+    currency = str(
+        data.get("currency", data.get("budget_currency", "USD"))
+    ).strip().upper()
+    if not currency:
+        currency = "USD"
+
+    if currency not in SUPPORTED_CURRENCIES:
+        raise ValueError(
+            "'currency' must be one of: "
+            + ", ".join(sorted(SUPPORTED_CURRENCIES))
+        )
+
     return TestConfig(
         search_query=search_query,
         max_price=max_price,
         item_limit=item_limit,
         username=str(data.get("username", "")).strip(),
         password=str(data.get("password", "")),
+        currency=currency,
     )
 
 

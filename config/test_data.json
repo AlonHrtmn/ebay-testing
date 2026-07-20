@@ -2,6 +2,7 @@
   "search_query": "shoes",
   "max_price": 500.0,
   "item_limit": 5,
+  "currency": "USD",
   "username": "",
   "password": ""
 }

@@ -1,7 +1,11 @@
 import pytest
 
 from utils.config import positive_float, positive_int
-from utils.helpers import parse_price
+from utils.helpers import (
+    convert_currency,
+    parse_price,
+    parse_price_and_currency,
+)
 
 
 @pytest.mark.parametrize(
@@ -18,6 +22,52 @@ from utils.helpers import parse_price
 )
 def test_parse_price(text: str, expected: float) -> None:
     assert parse_price(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "expected_amount", "expected_currency"),
+    [
+        ("$220.00", 220.0, "USD"),
+        ("ILS 1,220.50", 1220.5, "ILS"),
+        ("EUR 1.220,50", 1220.5, "EUR"),
+        ("£100.00", 100.0, "GBP"),
+        ("US $99.99", 99.99, "USD"),
+        ("₪250", 250.0, "ILS"),
+        ("100", 100.0, None),
+        ("", 0.0, None),
+    ],
+)
+def test_parse_price_and_currency(
+    text: str,
+    expected_amount: float,
+    expected_currency: str | None,
+) -> None:
+    amount, currency = parse_price_and_currency(text)
+    assert amount == expected_amount
+    assert currency == expected_currency
+
+
+@pytest.mark.parametrize(
+    ("amount", "from_currency", "to_currency", "expected"),
+    [
+        (100.0, "USD", "ILS", 370.0),
+        (370.0, "ILS", "USD", 99.9),
+        (100.0, "USD", "EUR", 93.0),
+        (100.0, "EUR", "USD", 108.0),
+        (100.0, "GBP", "USD", 127.0),
+    ],
+)
+def test_convert_currency(
+    amount: float,
+    from_currency: str,
+    to_currency: str,
+    expected: float,
+) -> None:
+    assert convert_currency(
+        amount,
+        from_currency,
+        to_currency,
+    ) == expected
 
 
 def test_positive_config_values() -> None:

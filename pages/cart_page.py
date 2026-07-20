@@ -9,10 +9,15 @@ from playwright.sync_api import (
 
 from pages.base_page import BasePage
 from utils.exceptions import EbayVerificationRequired
-from utils.helpers import parse_price
+from utils.helpers import (
+    convert_currency,
+    parse_price,
+    parse_price_and_currency,
+)
 
 
 class CartPage(BasePage):
+    EXPECTED_CART_CURRENCY = "USD"
     CART_URL = "https://cart.ebay.com/"
     CART_HOST_MARKERS = (
         "cart.payments.ebay.com",
@@ -495,6 +500,29 @@ class CartPage(BasePage):
 
         return subtotal
 
+    def get_subtotal_amount_and_currency(self) -> tuple[float, str | None]:
+        self.logger.info(
+            "Opening shopping cart to retrieve subtotal amount and currency."
+        )
+
+        self.open()
+
+        subtotal_text = self.get_subtotal_text()
+        amount, currency = parse_price_and_currency(subtotal_text)
+
+        if amount <= 0.0:
+            self.logger.error(
+                "Could not retrieve a positive cart subtotal."
+            )
+
+        if currency is None:
+            self.logger.warning(
+                "Could not determine cart currency from subtotal text: %s",
+                subtotal_text,
+            )
+
+        return amount, currency
+
     def wait_for_cart_item_images(
         self,
         expected_count: int,
@@ -549,22 +577,54 @@ class CartPage(BasePage):
         self,
         budget_per_item: float,
         items_count: int,
+        budget_currency: str = "USD",
     ) -> None:
         self.logger.info(
             "Validating cart subtotal against "
-            "budget_per_item=%s, items_count=%s",
+            "budget_per_item=%s, items_count=%s, budget_currency=%s",
             budget_per_item,
             items_count,
+            budget_currency,
         )
 
         assert items_count > 0, (
             "items_count must be greater than zero."
         )
 
-        actual_total = self.get_subtotal()
+        actual_total, actual_currency = (
+            self.get_subtotal_amount_and_currency()
+        )
         max_allowed = (
             budget_per_item * items_count
         )
+
+        if actual_currency is None:
+            raise AssertionError(
+                "Could not determine the cart subtotal currency. "
+                "Budget comparison requires a known currency."
+            )
+
+        if actual_currency != budget_currency:
+            try:
+                converted_total = convert_currency(
+                    actual_total,
+                    actual_currency,
+                    budget_currency,
+                )
+            except ValueError as exc:
+                raise AssertionError(
+                    "Could not compare cart subtotal across currencies: "
+                    f"{exc} Raw subtotal: {actual_currency} {actual_total}"
+                ) from exc
+
+            self.logger.info(
+                "Converted cart subtotal from %s %s to %s %s.",
+                actual_total,
+                actual_currency,
+                budget_currency,
+                converted_total,
+            )
+            actual_total = converted_total
 
         self.wait_for_cart_item_images(
             items_count
@@ -579,8 +639,8 @@ class CartPage(BasePage):
         )
 
         assert actual_total <= max_allowed, (
-            f"Cart total ({actual_total}) exceeds "
-            f"the allowed budget ({max_allowed})."
+            f"Cart total ({actual_total:.2f} {budget_currency}) exceeds "
+            f"the allowed budget ({max_allowed:.2f} {budget_currency})."
         )
 
         self.logger.info(
@@ -594,8 +654,10 @@ class CartPage(BasePage):
         self,
         budget_per_item: float,
         items_count: int,
+        budget_currency: str = "USD",
     ) -> None:
         self.assert_cart_total_not_exceeds(
             budget_per_item,
             items_count,
+            budget_currency=budget_currency,
         )

@@ -62,6 +62,7 @@ def assertCartTotalNotExceeds(
     page: Page,
     budget_per_item: float,
     items_count: int,
+    budget_currency: str = "USD",
 ) -> None:
     """
     Opens the cart and verifies that its subtotal does not exceed
@@ -70,6 +71,7 @@ def assertCartTotalNotExceeds(
     CartPage(page).assertCartTotalNotExceeds(
         budget_per_item,
         items_count,
+        budget_currency=budget_currency,
     )
 
 
@@ -381,6 +383,7 @@ def main() -> None:
                 page,
                 max_price,
                 items_added,
+                budget_currency=config.currency,
             )
 
             log(
