@@ -1,7 +1,7 @@
 import os
 import time
 
-from pymupdf import message
+
 import pytest
 from playwright.sync_api import Page
 

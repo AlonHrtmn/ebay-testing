@@ -1,206 +1,485 @@
 import os
 import time
+import traceback
+from pathlib import Path
 from typing import Optional
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Browser, BrowserContext, Page, sync_playwright
+
 from pages.login_page import LoginPage
 from pages.search_page import SearchPage
 from pages.product_page import ProductPage
 from pages.cart_page import CartPage
-from utils.config import load_config, positive_float, positive_int
+from utils.config import load_config
 
 
-# --- Top-Level Function Signatures Required by Assignment ---
+# ---------------------------------------------------------------------------
+# Assignment-required top-level functions
+# ---------------------------------------------------------------------------
 
-def login(page, username: str = "", password: str = "") -> bool:
+def login(page: Page, username: str = "", password: str = "") -> bool:
     """
     Executes the identification / session establishment step (הזדהות).
     """
-    login_page = LoginPage(page)
-    return login_page.login_stub(username, password)
+    return LoginPage(page).login_stub(username, password)
 
-def searchItemsByNameUnderPrice(page, query: str, max_price: float, limit: int = 5) -> list:
+
+def searchItemsByNameUnderPrice(
+    page: Page,
+    query: str,
+    max_price: float,
+    limit: int = 5,
+) -> list:
     """
-    Searches for items matching query and filters links that cost <= max_price.
-    Navigates pages if necessary.
+    Searches for items matching query and filters item URLs whose price
+    is <= max_price.
     """
-    search_page = SearchPage(page)
-    return search_page.searchItemsByNameUnderPrice(query, max_price, limit)
+    return SearchPage(page).searchItemsByNameUnderPrice(
+        query,
+        max_price,
+        limit,
+    )
+
 
 def addItemsToCart(
-    page,
+    page: Page,
     urls: list,
     max_price: Optional[float] = None,
     desired_count: Optional[int] = None,
 ) -> int:
     """
-    Navigates to each item URL, handles option selects, and clicks Add to Cart.
-    Saves screenshot of each.
+    Navigates to each item URL, handles required options,
+    and adds valid items to the cart.
     """
-    product_page = ProductPage(page)
-    return product_page.addItemsToCart(urls, max_price=max_price, desired_count=desired_count)
+    return ProductPage(page).addItemsToCart(
+        urls,
+        max_price=max_price,
+        desired_count=desired_count,
+    )
 
-def assertCartTotalNotExceeds(page, budget_per_item: float, items_count: int):
-    """
-    Opens the cart page, parses the subtotal, and asserts that it is within budget.
-    """
-    cart_page = CartPage(page)
-    cart_page.assertCartTotalNotExceeds(budget_per_item, items_count)
 
-def clear_cart(page):
+def assertCartTotalNotExceeds(
+    page: Page,
+    budget_per_item: float,
+    items_count: int,
+) -> None:
     """
-    Clears the shopping cart to avoid stale cart state.
+    Opens the cart and verifies that its subtotal does not exceed
+    budget_per_item * items_count.
     """
-    cart_page = CartPage(page)
-    cart_page.clear_cart()
+    CartPage(page).assertCartTotalNotExceeds(
+        budget_per_item,
+        items_count,
+    )
 
-def page_is_open(page) -> bool:
+
+def clear_cart(page: Page) -> None:
+    """
+    Clears the shopping cart to avoid stale state between runs.
+    """
+    CartPage(page).clear_cart()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def page_is_open(page: Optional[Page]) -> bool:
     return page is not None and not page.is_closed()
 
+
 def format_elapsed(seconds: float) -> str:
-    """Formats elapsed seconds as HH:MM:SS."""
     total_seconds = int(seconds)
     hours, remainder = divmod(total_seconds, 3600)
     minutes, secs = divmod(remainder, 60)
+
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
 
 def env_flag(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
+
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
 
-# --- Standalone Script Execution ---
+    return value.strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
 
-def main():
+
+def create_artifact_directories() -> tuple[Path, Path]:
+    base_dir = Path(__file__).resolve().parent
+
+    screenshots_dir = base_dir / "screenshots"
+    traces_dir = base_dir / "traces"
+
+    screenshots_dir.mkdir(parents=True, exist_ok=True)
+    traces_dir.mkdir(parents=True, exist_ok=True)
+
+    return screenshots_dir, traces_dir
+
+
+def capture_failure_screenshot(
+    page: Optional[Page],
+    screenshots_dir: Path,
+    log,
+) -> None:
+    if page is None:
+        log("Browser page was not created; skipping screenshot.")
+        return
+
+    if page.is_closed():
+        log("Browser page is closed; skipping screenshot.")
+        return
+
+    screenshot_path = screenshots_dir / "main_error.png"
+
+    try:
+        page.screenshot(
+            path=str(screenshot_path),
+            full_page=True,
+        )
+
+        log(f"Error screenshot saved to: {screenshot_path}")
+
+    except Exception as screenshot_error:
+        log(
+            "Could not capture error screenshot: "
+            f"{screenshot_error}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Main flow
+# ---------------------------------------------------------------------------
+
+def main() -> None:
     start_time = time.perf_counter()
 
     def log(message: str = "") -> None:
-        elapsed = format_elapsed(time.perf_counter() - start_time)
-        print(f"[elapsed {elapsed}] {message}" if message else "")
+        if not message:
+            print()
+            return
+
+        elapsed = format_elapsed(
+            time.perf_counter() - start_time
+        )
+
+        print(
+            f"[elapsed {elapsed}] {message}",
+            flush=True,
+        )
+
+    screenshots_dir, traces_dir = create_artifact_directories()
 
     log("Loading test configuration...")
+
     config = load_config()
-    query = str(config.get("search_query", "shoes")).strip() or "shoes"
-    max_price = positive_float(config, "max_price", 220.0)
-    limit = positive_int(config, "item_limit", 5)
-    username = str(config.get("username", ""))
-    password = str(config.get("password", ""))
-    headless = env_flag("EBAY_HEADLESS", env_flag("PLAYWRIGHT_HEADLESS", False))
-    
+
+    query = config.search_query
+    max_price = config.max_price
+    limit = config.item_limit
+    username = config.username
+    password = config.password
+
+    is_ci = env_flag("CI", False)
+
+    # CI should normally be headless.
+    headless = env_flag(
+        "EBAY_HEADLESS",
+        env_flag(
+            "PLAYWRIGHT_HEADLESS",
+            is_ci,
+        ),
+    )
+
+    clear_cart_before_run = env_flag(
+        "EBAY_CLEAR_CART_BEFORE_RUN",
+        False,
+    )
+
     log(
         "Starting eBay automation flow: "
-        f"search='{query}', max item price={max_price}, target items={limit}."
+        f"search='{query}', "
+        f"max item price={max_price}, "
+        f"target items={limit}."
     )
-    if headless:
-        log("Headless browser mode is ON; progress will be reported in this terminal.")
-    else:
-        log("Headed browser mode is ON; you can watch the browser while terminal timing continues.")
-    
-    browser = None
-    page = None
 
-    with sync_playwright() as p:
-        mode_name = "headless" if headless else "headed"
-        log(f"Launching Chromium in {mode_name} mode...")
-        browser = p.chromium.launch(
-            headless=headless,
-            slow_mo=0 if headless else 500,  # Slow only when the browser is visible.
-            args=["--start-maximized"],
-        )
-        
-        # Create a realistic browser context.
-        log("Creating browser context with eBay-friendly locale, timezone, and viewport settings...")
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            # record_video_dir="videos/",
-            device_scale_factor=1,
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-            locale="en-US",
-            timezone_id="America/New_York"
-        )
-        page = context.new_page()
-        page.set_default_timeout(60_000)
-        page.set_default_navigation_timeout(60_000)
-        
+    log(
+        "Browser mode: "
+        f"{'headless' if headless else 'headed'}."
+    )
+
+    browser: Optional[Browser] = None
+    context: Optional[BrowserContext] = None
+    page: Optional[Page] = None
+
+    trace_started = False
+    flow_succeeded = False
+
+    with sync_playwright() as playwright:
+
         try:
-            # Step 1: Identification (הזדהות)
-            log("\n--- Step 1: Starting guest/login session setup ---")
-            step_start = time.perf_counter()
-            login(page, username, password)
-            log(f"Step 1 complete: browser session is ready in {format_elapsed(time.perf_counter() - step_start)}.")
-            
-            if os.getenv("EBAY_CLEAR_CART_BEFORE_RUN") == "1":
-                log("\n--- Clearing shopping cart before adding new items ---")
-                step_start = time.perf_counter()
-                clear_cart(page)
-                log(f"Cart cleanup complete in {format_elapsed(time.perf_counter() - step_start)}.")
-            
-            # Step 2: Search
-            log(
-                "\n--- Step 2: Searching eBay "
-                f"for '{query}' under {max_price}, collecting backup samples "
-                f"for {limit} target item(s) ---"
+            # ---------------------------------------------------------------
+            # Browser setup
+            # ---------------------------------------------------------------
+
+            log("Launching Chromium...")
+
+            browser = playwright.chromium.launch(
+                headless=headless,
+                timeout=60_000,
+                args=["--disable-gpu"],
+
+                # slow_mo is useful only for visually debugging locally.
+                slow_mo=0 if headless else 250,
             )
+
+            log("Creating browser context...")
+
+            context = browser.new_context(
+                viewport={
+                    "width": 1920,
+                    "height": 1080,
+                },
+                locale="en-US",
+            )
+
+            # Capture a Playwright trace for debugging.
+            context.tracing.start(
+                screenshots=True,
+                snapshots=True,
+                sources=True,
+            )
+
+            trace_started = True
+
+            page = context.new_page()
+
+            page.set_default_timeout(30_000)
+            page.set_default_navigation_timeout(60_000)
+
+            # ---------------------------------------------------------------
+            # Step 1 - Login/session
+            # ---------------------------------------------------------------
+
+            log("--- Step 1: Starting guest/login session setup ---")
+
             step_start = time.perf_counter()
-            urls = searchItemsByNameUnderPrice(page, query, max_price, limit)
+
+            login_success = login(
+                page,
+                username,
+                password,
+            )
+
+            if not login_success:
+                raise RuntimeError(
+                    "Login/session setup did not complete successfully."
+                )
+
+            log(
+                "Step 1 complete in "
+                f"{format_elapsed(time.perf_counter() - step_start)}."
+            )
+
+            # ---------------------------------------------------------------
+            # Optional cart cleanup
+            # ---------------------------------------------------------------
+
+            if clear_cart_before_run:
+                log("--- Clearing shopping cart before run ---")
+
+                step_start = time.perf_counter()
+
+                clear_cart(page)
+
+                log(
+                    "Cart cleanup complete in "
+                    f"{format_elapsed(time.perf_counter() - step_start)}."
+                )
+
+            # ---------------------------------------------------------------
+            # Step 2 - Search
+            # ---------------------------------------------------------------
+
+            log(
+                "--- Step 2: Searching eBay "
+                f"for '{query}' under {max_price} ---"
+            )
+
+            step_start = time.perf_counter()
+
+            urls = searchItemsByNameUnderPrice(
+                page,
+                query,
+                max_price,
+                limit,
+            )
 
             if not urls:
-                log("No items matched the search criteria. Exiting.")
-                return
-            
+                raise RuntimeError(
+                    "No items matched the configured search criteria."
+                )
+
             log(
-                f"Step 2 complete: collected {len(urls)} matching item URL(s) "
-                f"in {format_elapsed(time.perf_counter() - step_start)}; "
-                f"will add the first {limit} that work."
+                f"Step 2 complete: collected {len(urls)} "
+                "candidate item URL(s) in "
+                f"{format_elapsed(time.perf_counter() - step_start)}."
             )
-            
-                
-            # Step 3: Add to Cart
-            log(
-                "\n--- Step 3: Opening each selected item, choosing valid options, "
-                "and adding to cart ---"
-            )
+
+            # ---------------------------------------------------------------
+            # Step 3 - Add items
+            # ---------------------------------------------------------------
+
+            log("--- Step 3: Adding valid items to cart ---")
+
             step_start = time.perf_counter()
-            items_added = addItemsToCart(page, urls, max_price, desired_count=limit)
-            log(
-                f"Step 3 complete: successfully added {items_added} item(s) "
-                f"in {format_elapsed(time.perf_counter() - step_start)}."
+
+            items_added = addItemsToCart(
+                page,
+                urls,
+                max_price=max_price,
+                desired_count=limit,
             )
-            
-            # Step 4: Verify Cart Subtotal
+
+            if items_added <= 0:
+                raise AssertionError(
+                    "No items were successfully added to the cart."
+                )
+
+            if items_added < limit:
+                log(
+                    "Warning: requested "
+                    f"{limit} item(s), but only "
+                    f"{items_added} were successfully added."
+                )
+
             log(
-                "\n--- Step 4: Opening cart and checking subtotal against "
-                f"overall budget {max_price * items_added} ---"
+                f"Step 3 complete: added {items_added} item(s) in "
+                f"{format_elapsed(time.perf_counter() - step_start)}."
             )
+
+            # ---------------------------------------------------------------
+            # Step 4 - Validate subtotal
+            # ---------------------------------------------------------------
+
+            expected_max_total = max_price * items_added
+
+            log(
+                "--- Step 4: Verifying cart subtotal "
+                f"does not exceed {expected_max_total:.2f} ---"
+            )
+
             step_start = time.perf_counter()
-            assertCartTotalNotExceeds(page, max_price, items_added)
-            log(f"Step 4 complete: cart subtotal verified in {format_elapsed(time.perf_counter() - step_start)}.")
-            
-            log("\nFlow completed successfully! Keeping browser open for 3 seconds...")
-            page.wait_for_timeout(3000)
-            
-        except Exception as e:
-            log(f"\nExecution encountered an error: {e}")
-            if page_is_open(page):
-                try:
-                    screenshots_dir = os.path.join(os.path.dirname(__file__), "screenshots")
-                    os.makedirs(screenshots_dir, exist_ok=True)
-                    screenshot_path = os.path.join(screenshots_dir, "main_error.png")
-                    page.screenshot(path=screenshot_path, full_page=True)
-                    log(f"Error screenshot saved to: {screenshot_path}")
-                except Exception as screenshot_error:
-                    log(f"Could not capture error screenshot: {screenshot_error}")
-                page.wait_for_timeout(5000) # Give you time to look at the screen on error
-            else:
-                log("Browser page is already closed; skipping error pause.")
+
+            assertCartTotalNotExceeds(
+                page,
+                max_price,
+                items_added,
+            )
+
+            log(
+                "Step 4 complete in "
+                f"{format_elapsed(time.perf_counter() - step_start)}."
+            )
+
+            flow_succeeded = True
+
+            log("Flow completed successfully.")
+
+            # Optional pause only for manual local observation.
+            if (
+                not headless
+                and not is_ci
+                and env_flag("EBAY_PAUSE_AFTER_SUCCESS", False)
+            ):
+                log("Pausing briefly for local inspection...")
+                page.wait_for_timeout(3000)
+
+        except Exception as error:
+
+            log(
+                "Execution failed: "
+                f"{type(error).__name__}: {error}"
+            )
+
+            # Useful in CI logs.
+            traceback.print_exc()
+
+            capture_failure_screenshot(
+                page,
+                screenshots_dir,
+                log,
+            )
+
             raise
-            
+
         finally:
-            log("Closing browser context...")
-            if browser is not None and browser.is_connected():
-                browser.close()
-            log(f"Total elapsed time: {format_elapsed(time.perf_counter() - start_time)}.")
+
+            # ---------------------------------------------------------------
+            # Save trace
+            # ---------------------------------------------------------------
+
+            if context is not None and trace_started:
+
+                trace_filename = (
+                    "success_trace.zip"
+                    if flow_succeeded
+                    else "failure_trace.zip"
+                )
+
+                trace_path = traces_dir / trace_filename
+
+                try:
+                    context.tracing.stop(
+                        path=str(trace_path)
+                    )
+
+                    log(
+                        f"Playwright trace saved to: {trace_path}"
+                    )
+
+                except Exception as trace_error:
+                    log(
+                        "Could not save Playwright trace: "
+                        f"{trace_error}"
+                    )
+
+            # ---------------------------------------------------------------
+            # Cleanup
+            # ---------------------------------------------------------------
+
+            if context is not None:
+                try:
+                    context.close()
+                except Exception as context_error:
+                    log(
+                        "Error while closing browser context: "
+                        f"{context_error}"
+                    )
+
+            if (
+                browser is not None
+                and browser.is_connected()
+            ):
+                try:
+                    browser.close()
+                except Exception as browser_error:
+                    log(
+                        "Error while closing browser: "
+                        f"{browser_error}"
+                    )
+
+            log(
+                "Total elapsed time: "
+                f"{format_elapsed(time.perf_counter() - start_time)}."
+            )
+
 
 if __name__ == "__main__":
     main()
